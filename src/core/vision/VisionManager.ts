@@ -28,17 +28,13 @@ export class VisionManager {
     private smoothedRightHand: Point2D | null = null;
     private readonly smoothing = 0.5; // Higher = more responsive, lower = smoother
 
-    // Debug canvas (only shown in development)
+    // Camera preview canvas (always visible in top-right corner)
     private debugCanvas: HTMLCanvasElement | null = null;
     private debugCtx: CanvasRenderingContext2D | null = null;
-    private readonly isDebug = import.meta.env.DEV;
 
     // Tracking state
     private leftHandVisible = false;
     private rightHandVisible = false;
-    // Confidence values used in debug display
-    private _leftHandConfidence = 0;
-    private _rightHandConfidence = 0;
 
     constructor(_config?: VisionConfig) {
         this.video = document.createElement('video');
@@ -80,10 +76,8 @@ export class VisionManager {
         await this.video.play();
         console.log('Camera:', this.video.videoWidth, 'x', this.video.videoHeight);
 
-        // Create debug overlay (dev only)
-        if (this.isDebug) {
-            this.createDebugCanvas();
-        }
+        // Create camera preview overlay
+        this.createDebugCanvas();
 
         // Initialize result
         this.lastResult = {
@@ -101,22 +95,43 @@ export class VisionManager {
         console.log('MediaPipe Hands initialized!');
     }
 
+    // MediaPipe hand landmark connections for skeleton drawing
+    private static readonly HAND_CONNECTIONS: [number, number][] = [
+        [0, 1], [1, 2], [2, 3], [3, 4],       // Thumb
+        [0, 5], [5, 6], [6, 7], [7, 8],       // Index
+        [0, 9], [9, 10], [10, 11], [11, 12],  // Middle
+        [0, 13], [13, 14], [14, 15], [15, 16],// Ring
+        [0, 17], [17, 18], [18, 19], [19, 20],// Pinky
+        [5, 9], [9, 13], [13, 17]             // Palm
+    ];
+
     private createDebugCanvas() {
+        // Create a wrapper div for the preview with polished styling
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = `
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 100;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+        `;
+
         this.debugCanvas = document.createElement('canvas');
         this.debugCanvas.width = 320;
         this.debugCanvas.height = 240;
         this.debugCanvas.style.cssText = `
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            width: 320px;
-            height: 240px;
-            border: 2px solid #00ff00;
-            z-index: 9999;
-            border-radius: 8px;
+            display: block;
+            width: 240px;
+            height: 180px;
             background: #000;
         `;
-        document.body.appendChild(this.debugCanvas);
+
+        wrapper.appendChild(this.debugCanvas);
+        document.body.appendChild(wrapper);
         this.debugCtx = this.debugCanvas.getContext('2d')!;
     }
 
@@ -164,14 +179,12 @@ export class VisionManager {
                     this.smoothedLeftHand = smoothed;
                     leftHand = { position: smoothed, confidence };
                     this.leftHandVisible = true;
-                    this._leftHandConfidence = confidence;
                 } else {
                     // This is actually the RIGHT hand on screen
                     const smoothed = this.smoothPoint(handCenter, this.smoothedRightHand);
                     this.smoothedRightHand = smoothed;
                     rightHand = { position: smoothed, confidence };
                     this.rightHandVisible = true;
-                    this._rightHandConfidence = confidence;
                 }
             }
         }
@@ -218,73 +231,72 @@ export class VisionManager {
         return null;
     }
 
-    private drawDebug(results: Results, leftHand: HandPosition | null, rightHand: HandPosition | null) {
+    private drawDebug(results: Results, _leftHand: HandPosition | null, _rightHand: HandPosition | null) {
         if (!this.debugCtx || !this.debugCanvas) return;
 
         const ctx = this.debugCtx;
         const w = this.debugCanvas.width;
         const h = this.debugCanvas.height;
 
-        // Clear and draw video
+        // Clear and draw mirrored video feed
         ctx.save();
-        ctx.scale(-1, 1); // Mirror
+        ctx.scale(-1, 1);
         ctx.drawImage(this.video, -w, 0, w, h);
         ctx.restore();
 
-        // Draw hand landmarks
-        if (results.multiHandLandmarks) {
-            for (const landmarks of results.multiHandLandmarks) {
-                // Draw connections
-                ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
-                ctx.lineWidth = 1;
+        // Slight darkening overlay so landmarks pop
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.fillRect(0, 0, w, h);
 
-                // Draw landmarks
-                for (const landmark of landmarks) {
-                    const x = (1 - landmark.x) * w; // Mirror x
-                    const y = landmark.y * h;
+        // Draw hand skeletons with connections
+        if (results.multiHandLandmarks && results.multiHandedness) {
+            for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                const landmarks = results.multiHandLandmarks[i];
+                const handedness = results.multiHandedness[i];
 
-                    ctx.fillStyle = '#00ff00';
+                // Color per hand: cyan for left (user's left), orange for right
+                const isLeftHand = handedness.label === 'Right'; // MediaPipe mirrors
+                const color = isLeftHand ? '#00e5ff' : '#ff9100';
+                const glowColor = isLeftHand ? 'rgba(0, 229, 255, 0.3)' : 'rgba(255, 145, 0, 0.3)';
+
+                // Draw skeleton connections
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = 6;
+
+                for (const [a, b] of VisionManager.HAND_CONNECTIONS) {
+                    const la = landmarks[a];
+                    const lb = landmarks[b];
+                    const ax = (1 - la.x) * w;
+                    const ay = la.y * h;
+                    const bx = (1 - lb.x) * w;
+                    const by = lb.y * h;
+
                     ctx.beginPath();
-                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    ctx.moveTo(ax, ay);
+                    ctx.lineTo(bx, by);
+                    ctx.stroke();
+                }
+
+                // Draw landmark dots
+                ctx.shadowBlur = 0;
+                for (let j = 0; j < landmarks.length; j++) {
+                    const lm = landmarks[j];
+                    const x = (1 - lm.x) * w;
+                    const y = lm.y * h;
+
+                    // Fingertips (4, 8, 12, 16, 20) get larger dots
+                    const isFingertip = j === 4 || j === 8 || j === 12 || j === 16 || j === 20;
+                    const radius = isFingertip ? 4 : 2;
+
+                    ctx.fillStyle = isFingertip ? '#ffffff' : color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
                     ctx.fill();
                 }
             }
         }
-
-        // Draw detected hand positions
-        if (leftHand) {
-            const x = (1 - leftHand.position.x) * w;
-            const y = leftHand.position.y * h;
-            ctx.fillStyle = '#ff0000';
-            ctx.strokeStyle = '#ff0000';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(x, y, 12, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.fillText('L', x - 4, y + 4);
-        }
-
-        if (rightHand) {
-            const x = (1 - rightHand.position.x) * w;
-            const y = rightHand.position.y * h;
-            ctx.fillStyle = '#0088ff';
-            ctx.strokeStyle = '#0088ff';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(x, y, 12, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.fillText('R', x - 4, y + 4);
-        }
-
-        // Status text
-        ctx.fillStyle = '#fff';
-        ctx.font = '11px monospace';
-        ctx.fillText(`Left: ${this.leftHandVisible ? `YES (${(this._leftHandConfidence * 100).toFixed(0)}%)` : 'NO'}`, 5, 15);
-        ctx.fillText(`Right: ${this.rightHandVisible ? `YES (${(this._rightHandConfidence * 100).toFixed(0)}%)` : 'NO'}`, 5, 28);
     }
 
     public getMask(): SegmentationResult | null {
@@ -306,7 +318,7 @@ export class VisionManager {
             (this.video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
         }
 
-        this.debugCanvas?.remove();
+        this.debugCanvas?.parentElement?.remove();
         this.hands?.close();
     }
 }
