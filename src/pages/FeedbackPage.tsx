@@ -69,9 +69,12 @@ export const FeedbackPage: React.FC = () => {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const existing = JSON.parse(localStorage.getItem('bugs-feedback') || '[]');
-        existing.push({ ...form, timestamp: Date.now() });
-        localStorage.setItem('bugs-feedback', JSON.stringify(existing));
+        const categoryLabel = categories.find(c => c.key === form.category)?.label || 'General';
+        const subject = encodeURIComponent(`[BUGS Feedback] ${categoryLabel}`);
+        const body = encodeURIComponent(
+            `Name: ${form.name || 'Anonymous'}\nEmail: ${form.email || 'Not provided'}\nCategory: ${categoryLabel}\n\n${form.message}`
+        );
+        window.open(`mailto:support@bartlabs.in?subject=${subject}&body=${body}`, '_self');
         setSubmitted(true);
     };
 

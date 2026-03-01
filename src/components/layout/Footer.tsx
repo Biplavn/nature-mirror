@@ -17,10 +17,11 @@ export const Footer: React.FC = () => {
                         <Link to="/feedback" className="text-ink-light/40 hover:text-ink-light transition-colors">Feedback</Link>
                     </div>
 
-                    {/* Credit */}
-                    <p className="font-sans text-xs text-ink-light/30">
-                        Creature behaviors inspired by nature
-                    </p>
+                    {/* BART Labs */}
+                    <a href="https://www.bartlabs.in" target="_blank" rel="noopener noreferrer"
+                       className="opacity-30 hover:opacity-60 transition-opacity">
+                        <img src="/bartlabs-logo.png" alt="BART Labs" className="h-5" />
+                    </a>
                 </div>
             </div>
         </footer>
