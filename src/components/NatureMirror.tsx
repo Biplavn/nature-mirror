@@ -50,14 +50,19 @@ const MODES_CONFIG: ModeConfig[] = [
     }
 ];
 
-export const NatureMirror: React.FC = () => {
+interface NatureMirrorProps {
+    onReady?: () => void;
+    initialMode?: CreatureMode;
+}
+
+export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode = 'BIRDS' }) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [activeMode, setActiveMode] = useState<CreatureMode>('BIRDS');
+    const [activeMode, setActiveMode] = useState<CreatureMode>(initialMode);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [cameraActive, setCameraActive] = useState(false);
     const [fps, setFps] = useState(0);
-    // System references
+
     const systemsRef = useRef<{
         vision: VisionManager | null;
         renderer: Creature3DRenderer | null;
@@ -77,17 +82,16 @@ export const NatureMirror: React.FC = () => {
 
         const init = async () => {
             try {
-                console.log('Initializing 3D Nature Mirror...');
+                console.log('Initializing BUGS experience...');
 
-                // Create 3D renderer
                 const renderer = new Creature3DRenderer(containerRef.current!, 10);
 
-                // Initialize Vision
-                const vision = new VisionManager({
-                    width: 320,
-                    height: 240,
-                    fps: 15
-                });
+                // Set initial mode if different from default
+                if (initialMode !== 'BIRDS') {
+                    renderer.setMode(initialMode);
+                }
+
+                const vision = new VisionManager();
 
                 try {
                     await vision.start();
@@ -101,18 +105,14 @@ export const NatureMirror: React.FC = () => {
 
                 systemsRef.current = { vision, renderer };
 
-                // Animation loop
                 const animate = () => {
                     if (destroyed) return;
 
                     const { vision, renderer } = systemsRef.current;
                     if (!renderer) return;
 
-                    // Get mask with hand positions
                     const mask = vision?.getMask();
                     if (mask) {
-                        // Pass hand positions to renderer
-                        // Mirror X coordinates so hand movement matches screen position
                         renderer.updateTracking({
                             leftHand: mask.hands.left ? {
                                 x: (1 - mask.hands.left.position.x) * window.innerWidth,
@@ -136,10 +136,8 @@ export const NatureMirror: React.FC = () => {
                         });
                     }
 
-                    // Update renderer
                     renderer.update(1);
 
-                    // FPS counter
                     frameCount++;
                     const now = performance.now();
                     if (now - lastTime >= 1000) {
@@ -153,14 +151,14 @@ export const NatureMirror: React.FC = () => {
 
                 animate();
 
-                // Handle resize
                 resizeHandler = () => {
                     systemsRef.current.renderer?.resize(window.innerWidth, window.innerHeight);
                 };
                 window.addEventListener('resize', resizeHandler);
 
-                console.log('3D Nature Mirror initialized!');
+                console.log('BUGS experience initialized!');
                 setIsLoading(false);
+                onReady?.();
 
             } catch (err) {
                 console.error('Init error:', err);
@@ -181,7 +179,7 @@ export const NatureMirror: React.FC = () => {
             vision?.stop();
             renderer?.destroy();
         };
-    }, []);
+    }, [initialMode, onReady]);
 
     const handleModeChange = useCallback((mode: CreatureMode) => {
         if (systemsRef.current.renderer?.isTransitioning) return;
@@ -210,19 +208,10 @@ export const NatureMirror: React.FC = () => {
         <div className="relative w-full h-full overflow-hidden bg-black">
             <div ref={containerRef} className="absolute inset-0" />
 
-            {isLoading && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900">
-                    <div className="text-center">
-                        <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-                        <p className="text-white/60">Loading 3D Creatures...</p>
-                    </div>
-                </div>
-            )}
-
             {!isLoading && (
                 <>
-                    {/* Header */}
-                    <div className="absolute top-4 left-4 z-10 flex items-center gap-4">
+                    {/* Status indicators — shifted right to avoid back button */}
+                    <div className="absolute top-4 left-16 z-10 flex items-center gap-4">
                         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium backdrop-blur-sm ${cameraActive
                                 ? 'bg-green-500/20 text-green-300 border border-green-500/30'
                                 : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
@@ -237,7 +226,7 @@ export const NatureMirror: React.FC = () => {
                     </div>
 
                     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 text-center">
-                        <h1 className="text-xl font-bold text-white/90">Nature Mirror 3D</h1>
+                        <h1 className="text-xl font-bold text-white/90">BUGS</h1>
                         <p className="text-white/50 text-xs mt-0.5">
                             {MODES_CONFIG.find(m => m.key === activeMode)?.description}
                         </p>

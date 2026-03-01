@@ -31,6 +31,9 @@ export class VisionManager {
     // Camera preview canvas (always visible in top-right corner)
     private debugCanvas: HTMLCanvasElement | null = null;
     private debugCtx: CanvasRenderingContext2D | null = null;
+    private previewWrapper: HTMLDivElement | null = null;
+    private toggleBtn: HTMLButtonElement | null = null;
+    private cameraVisible = true;
 
     // Tracking state
     private leftHandVisible = false;
@@ -118,7 +121,9 @@ export class VisionManager {
             border: 1px solid rgba(255, 255, 255, 0.15);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(8px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
         `;
+        this.previewWrapper = wrapper;
 
         this.debugCanvas = document.createElement('canvas');
         this.debugCanvas.width = 320;
@@ -133,6 +138,64 @@ export class VisionManager {
         wrapper.appendChild(this.debugCanvas);
         document.body.appendChild(wrapper);
         this.debugCtx = this.debugCanvas.getContext('2d')!;
+
+        // Create toggle button
+        const btn = document.createElement('button');
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span style="margin-left:5px">Hide</span>`;
+        btn.style.cssText = `
+            position: fixed;
+            top: 200px;
+            right: 16px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            transition: all 0.2s ease;
+            outline: none;
+        `;
+        btn.addEventListener('mouseenter', () => {
+            btn.style.background = 'rgba(0, 0, 0, 0.7)';
+            btn.style.color = 'rgba(255, 255, 255, 0.95)';
+            btn.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.background = 'rgba(0, 0, 0, 0.5)';
+            btn.style.color = 'rgba(255, 255, 255, 0.7)';
+            btn.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+        });
+        btn.addEventListener('click', () => this.toggleCameraPreview());
+        document.body.appendChild(btn);
+        this.toggleBtn = btn;
+    }
+
+    private toggleCameraPreview() {
+        this.cameraVisible = !this.cameraVisible;
+
+        if (this.previewWrapper && this.toggleBtn) {
+            if (this.cameraVisible) {
+                // Show preview
+                this.previewWrapper.style.opacity = '1';
+                this.previewWrapper.style.transform = 'translateY(0)';
+                this.previewWrapper.style.pointerEvents = 'auto';
+                this.toggleBtn.style.top = '200px';
+                this.toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span style="margin-left:5px">Hide</span>`;
+            } else {
+                // Hide preview
+                this.previewWrapper.style.opacity = '0';
+                this.previewWrapper.style.transform = 'translateY(-10px)';
+                this.previewWrapper.style.pointerEvents = 'none';
+                this.toggleBtn.style.top = '16px';
+                this.toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg><span style="margin-left:5px">Show Camera</span>`;
+            }
+        }
     }
 
     private processLoop = async () => {
@@ -318,7 +381,8 @@ export class VisionManager {
             (this.video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
         }
 
-        this.debugCanvas?.parentElement?.remove();
+        this.previewWrapper?.remove();
+        this.toggleBtn?.remove();
         this.hands?.close();
     }
 }

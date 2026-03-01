@@ -1,22 +1,39 @@
 @import "tailwindcss";
 
 :root {
-    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
+    --color-cream: #FDF6EC;
+    --color-warm-white: #FAF3E6;
+    --color-parchment: #F5ECD7;
+    --color-ink: #2C1810;
+    --color-ink-light: #5C4033;
+    --color-field-green: #4A7C59;
+    --color-field-amber: #C9923D;
+    --color-field-red: #A0522D;
+
+    font-family: 'Lora', Georgia, 'Times New Roman', serif;
+    line-height: 1.6;
     font-weight: 400;
-    color-scheme: dark;
+    color-scheme: light;
+    color: var(--color-ink);
 }
 
 body {
     margin: 0;
     padding: 0;
+    background-color: var(--color-cream);
+    min-height: 100vh;
+}
+
+/* Full-viewport dark mode for 3D experience */
+body.experience-mode {
     overflow: hidden;
     background-color: #000;
     width: 100vw;
     height: 100vh;
+    color-scheme: dark;
 }
 
-#root {
+body.experience-mode #root {
     width: 100%;
     height: 100%;
     position: relative;
@@ -25,4 +42,24 @@ body {
 canvas {
     display: block;
     touch-action: none;
+}
+
+/* Smooth scrolling for content pages */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: var(--color-parchment);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--color-field-amber);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-light);
 }
