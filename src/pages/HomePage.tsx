@@ -171,40 +171,79 @@ function HowItWorksSection() {
             icon: '📷',
             title: 'Turn on your camera',
             desc: 'Stand in front of your webcam so the screen can see your hands. That\'s all you need!',
+            bgColor: 'bg-sky-50/60',
+            borderColor: 'border-sky-200/60',
+            numBg: 'bg-sky-100',
+            numText: 'text-sky-700',
+            Creature: HummingbirdSVG,
+            creatureColor: 'text-sky-300',
         },
         {
             icon: '🤚',
             title: 'Wave your hands!',
             desc: 'Move slowly to attract curious creatures. Move fast to watch them scatter! Try different speeds and see what happens.',
+            bgColor: 'bg-emerald-50/60',
+            borderColor: 'border-emerald-200/60',
+            numBg: 'bg-emerald-100',
+            numText: 'text-emerald-700',
+            Creature: BeeSVG,
+            creatureColor: 'text-amber-300',
         },
         {
             icon: '🤩',
             title: 'Watch the magic!',
             desc: 'Every creature has its own personality! Some are brave, some are shy. They\'ll react differently to everything you do.',
+            bgColor: 'bg-violet-50/60',
+            borderColor: 'border-violet-200/60',
+            numBg: 'bg-violet-100',
+            numText: 'text-violet-700',
+            Creature: ButterflySVG,
+            creatureColor: 'text-violet-300',
         },
     ];
 
     return (
         <section className="py-20 px-6" ref={ref}>
             <div className="max-w-5xl mx-auto">
-                <div className={`text-center mb-16 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+                <div className={`text-center mb-14 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
                     <h2 className="font-display text-4xl font-bold text-ink mb-3">How to Play</h2>
-                    <p className="text-ink-light text-lg">It's super easy — just three steps!</p>
+                    <p className="font-hand text-xl text-field-green">It's super easy — just three steps!</p>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-8">
+                {/* Cards with connecting path */}
+                <div className="relative grid md:grid-cols-3 gap-8">
+                    {/* Connecting dashed line — desktop only */}
+                    <div className="hidden md:block absolute top-24 left-[20%] right-[20%] z-0">
+                        <svg width="100%" height="4" className="overflow-visible">
+                            <line x1="0" y1="2" x2="100%" y2="2" stroke="#C9923D" strokeWidth="2" strokeDasharray="8 6" strokeOpacity="0.25" />
+                        </svg>
+                    </div>
+
                     {steps.map((step, i) => (
                         <div
                             key={i}
-                            className={`text-center p-8 rounded-2xl bg-warm-white/50 border border-field-amber/10 transition-all duration-700 hover:shadow-md hover:-translate-y-1 ${
+                            className={`relative group text-center p-8 pt-10 rounded-2xl ${step.bgColor} border ${step.borderColor} overflow-hidden transition-all duration-700 hover:shadow-xl hover:-translate-y-2 hover:scale-[1.02] cursor-default ${
                                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
                             }`}
                             style={{ transitionDelay: `${i * 150}ms` }}
                         >
-                            <div className="text-5xl mb-4">{step.icon}</div>
-                            <div className="font-hand text-sm text-field-amber mb-2">Step {i + 1}</div>
-                            <h3 className="font-display text-xl font-semibold text-ink mb-3">{step.title}</h3>
-                            <p className="text-ink-light text-sm leading-relaxed">{step.desc}</p>
+                            {/* Decorative background creature */}
+                            <div className="absolute -bottom-6 -right-6 w-36 h-36 opacity-[0.05] group-hover:opacity-[0.09] transition-opacity duration-500 pointer-events-none">
+                                <step.Creature animated={isVisible} className={`w-full h-full ${step.creatureColor}`} />
+                            </div>
+
+                            {/* Step number badge */}
+                            <div className={`relative z-10 inline-flex items-center justify-center w-10 h-10 rounded-full ${step.numBg} ${step.numText} font-bold text-lg mb-4 shadow-sm`}>
+                                {i + 1}
+                            </div>
+
+                            {/* Animated emoji */}
+                            <div className="relative z-10 text-6xl mb-4 animate-float" style={{ animationDelay: `${i * 0.4}s` }}>
+                                {step.icon}
+                            </div>
+
+                            <h3 className="relative z-10 font-display text-xl font-semibold text-ink mb-3">{step.title}</h3>
+                            <p className="relative z-10 text-ink-light text-sm leading-relaxed">{step.desc}</p>
                         </div>
                     ))}
                 </div>
