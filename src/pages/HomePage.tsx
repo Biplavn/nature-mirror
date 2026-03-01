@@ -319,9 +319,13 @@ export const HomePage: React.FC = () => {
     return (
         <div className="bg-cream">
             <HeroSection />
+            <div className="max-w-4xl mx-auto"><hr className="border-t border-ink/[0.04]" /></div>
             <HowItWorksSection />
+            <div className="max-w-4xl mx-auto"><hr className="border-t border-ink/[0.04]" /></div>
             <CreaturesSection />
+            <div className="max-w-4xl mx-auto"><hr className="border-t border-ink/[0.04]" /></div>
             <ComingSoonSection />
+            <div className="max-w-4xl mx-auto"><hr className="border-t border-ink/[0.04]" /></div>
             <FinalCTASection />
         </div>
     );

@@ -28,6 +28,7 @@ export default {
                 'draw-in': 'drawIn 2s ease-out forwards',
                 'fade-up': 'fadeUp 0.7s ease-out forwards',
                 'pulse-soft': 'pulseSoft 3s ease-in-out infinite',
+                'bounce-in': 'bounceIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
                 'wing-left': 'wingLeft 0.15s ease-in-out infinite alternate',
                 'wing-right': 'wingRight 0.15s ease-in-out infinite alternate',
             },
@@ -55,6 +56,11 @@ export default {
                 wingLeft: {
                     '0%': { transform: 'rotateY(0deg) scaleX(1)' },
                     '100%': { transform: 'rotateY(50deg) scaleX(0.6)' },
+                },
+                bounceIn: {
+                    '0%': { transform: 'scale(0.9)', opacity: '0.5' },
+                    '60%': { transform: 'scale(1.12)' },
+                    '100%': { transform: 'scale(1)', opacity: '1' },
                 },
                 wingRight: {
                     '0%': { transform: 'rotateY(0deg) scaleX(1)' },

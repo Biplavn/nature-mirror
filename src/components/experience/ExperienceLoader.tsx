@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
+import { HummingbirdSVG } from '../illustrations/HummingbirdSVG';
+import { ClownfishSVG } from '../illustrations/ClownfishSVG';
+import { BeeSVG } from '../illustrations/BeeSVG';
+import { ButterflySVG } from '../illustrations/ButterflySVG';
 
-const creatureEmojis = ['🐦', '🐠', '🐝', '🦋'];
-const loadingMessages = [
-    'Waking up the creatures...',
-    'Painting the world...',
-    'Warming up your camera...',
-    'Almost there...',
+const creatures = [
+    { Component: HummingbirdSVG, message: 'Waking up the creatures...' },
+    { Component: ClownfishSVG, message: 'Painting the world...' },
+    { Component: BeeSVG, message: 'Warming up your camera...' },
+    { Component: ButterflySVG, message: 'Almost there...' },
 ];
 
 interface Props {
@@ -13,52 +16,49 @@ interface Props {
 }
 
 export const ExperienceLoader: React.FC<Props> = ({ isReady }) => {
-    const [messageIndex, setMessageIndex] = useState(0);
-    const [emojiIndex, setEmojiIndex] = useState(0);
+    const [index, setIndex] = useState(0);
 
     useEffect(() => {
-        const msgTimer = setInterval(() => {
-            setMessageIndex(prev => (prev + 1) % loadingMessages.length);
+        const timer = setInterval(() => {
+            setIndex(prev => (prev + 1) % creatures.length);
         }, 2000);
 
-        const emojiTimer = setInterval(() => {
-            setEmojiIndex(prev => (prev + 1) % creatureEmojis.length);
-        }, 800);
-
-        return () => {
-            clearInterval(msgTimer);
-            clearInterval(emojiTimer);
-        };
+        return () => clearInterval(timer);
     }, []);
+
+    const { Component, message } = creatures[index];
 
     return (
         <div
-            className={`fixed inset-0 z-[150] bg-gray-950 flex items-center justify-center transition-all duration-700 ${
+            className={`fixed inset-0 z-[150] bg-[#0a0a0a] flex items-center justify-center transition-all duration-700 ${
                 isReady ? 'opacity-0 scale-105 pointer-events-none' : 'opacity-100 scale-100'
             }`}
         >
             <div className="text-center">
-                {/* Cycling creature emoji */}
-                <div className="text-7xl mb-8 transition-all duration-300" key={emojiIndex}>
-                    {creatureEmojis[emojiIndex]}
+                {/* Cycling creature SVG with wing animations */}
+                <div
+                    key={index}
+                    className="w-20 h-20 mx-auto mb-8 text-white/25 animate-float animate-bounce-in"
+                >
+                    <Component animated={true} className="w-full h-full" />
                 </div>
 
                 {/* Title */}
-                <h2 className="text-white/90 text-3xl font-display font-bold mb-6 tracking-wide">
+                <h2 className="text-white/90 text-3xl font-display font-bold mb-6 tracking-widest">
                     BUGS
                 </h2>
 
                 {/* Progress bar */}
                 <div className="w-56 h-1 bg-white/10 rounded-full mx-auto overflow-hidden mb-4">
                     <div
-                        className="h-full bg-white/50 rounded-full transition-all duration-1000 ease-out"
+                        className="h-full bg-field-green/60 rounded-full transition-all duration-1000 ease-out"
                         style={{ width: isReady ? '100%' : '60%' }}
                     />
                 </div>
 
                 {/* Loading message */}
-                <p className="text-white/40 text-sm h-5 transition-opacity duration-300">
-                    {isReady ? 'Ready!' : loadingMessages[messageIndex]}
+                <p className={`font-sans text-sm h-5 transition-opacity duration-300 ${isReady ? 'text-field-green/60' : 'text-white/40'}`}>
+                    {isReady ? 'Ready!' : message}
                 </p>
             </div>
         </div>

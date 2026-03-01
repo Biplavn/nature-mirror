@@ -109,29 +109,30 @@ export class VisionManager {
     ];
 
     private createDebugCanvas() {
-        // Create a wrapper div for the preview with polished styling
+        // Create a wrapper div for the preview — glassmorphic style matching React overlays
         const wrapper = document.createElement('div');
         wrapper.style.cssText = `
             position: fixed;
             top: 16px;
             right: 16px;
             z-index: 100;
-            border-radius: 12px;
+            border-radius: 8px;
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
             backdrop-filter: blur(8px);
             transition: opacity 0.3s ease, transform 0.3s ease;
         `;
         this.previewWrapper = wrapper;
 
+        // 16:9 canvas to match camera aspect ratio — no more stretching
         this.debugCanvas = document.createElement('canvas');
         this.debugCanvas.width = 320;
-        this.debugCanvas.height = 240;
+        this.debugCanvas.height = 180;
         this.debugCanvas.style.cssText = `
             display: block;
             width: 240px;
-            height: 180px;
+            height: 135px;
             background: #000;
         `;
 
@@ -139,12 +140,12 @@ export class VisionManager {
         document.body.appendChild(wrapper);
         this.debugCtx = this.debugCanvas.getContext('2d')!;
 
-        // Create toggle button
+        // Create toggle button — styled to match the back button / status indicator
         const btn = document.createElement('button');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span style="margin-left:5px">Hide</span>`;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span style="margin-left:6px">Hide</span>`;
         btn.style.cssText = `
             position: fixed;
-            top: 200px;
+            top: 159px;
             right: 16px;
             z-index: 100;
             display: flex;
@@ -156,15 +157,16 @@ export class VisionManager {
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 8px;
             cursor: pointer;
-            font-size: 12px;
-            font-family: inherit;
+            font-family: 'Inter', system-ui, sans-serif;
+            font-size: 13px;
+            letter-spacing: 0.025em;
             transition: all 0.2s ease;
             outline: none;
         `;
         btn.addEventListener('mouseenter', () => {
             btn.style.background = 'rgba(0, 0, 0, 0.7)';
-            btn.style.color = 'rgba(255, 255, 255, 0.95)';
-            btn.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+            btn.style.color = 'rgba(255, 255, 255, 1)';
+            btn.style.borderColor = 'rgba(255, 255, 255, 0.15)';
         });
         btn.addEventListener('mouseleave', () => {
             btn.style.background = 'rgba(0, 0, 0, 0.5)';
@@ -185,15 +187,15 @@ export class VisionManager {
                 this.previewWrapper.style.opacity = '1';
                 this.previewWrapper.style.transform = 'translateY(0)';
                 this.previewWrapper.style.pointerEvents = 'auto';
-                this.toggleBtn.style.top = '200px';
-                this.toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span style="margin-left:5px">Hide</span>`;
+                this.toggleBtn.style.top = '159px';
+                this.toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span style="margin-left:6px">Hide</span>`;
             } else {
                 // Hide preview
                 this.previewWrapper.style.opacity = '0';
                 this.previewWrapper.style.transform = 'translateY(-10px)';
                 this.previewWrapper.style.pointerEvents = 'none';
                 this.toggleBtn.style.top = '16px';
-                this.toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg><span style="margin-left:5px">Show Camera</span>`;
+                this.toggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg><span style="margin-left:6px">Show Camera</span>`;
             }
         }
     }
