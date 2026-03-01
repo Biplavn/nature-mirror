@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 
 const creatureEmojis = ['🐦', '🐠', '🐝', '🦋'];
 const loadingMessages = [
-    'Preparing creatures...',
-    'Loading 3D models...',
-    'Initializing hand tracking...',
-    'Almost ready...',
+    'Waking up the creatures...',
+    'Painting the world...',
+    'Warming up your camera...',
+    'Almost there...',
 ];
 
 interface Props {

@@ -33,8 +33,8 @@ export const Footer: React.FC = () => {
 
                     {/* Credit */}
                     <div className="text-center md:text-right text-xs text-ink-light/60">
-                        <p>Built with Three.js, MediaPipe & React</p>
-                        <p className="mt-0.5">Creature behaviors based on biological research</p>
+                        <p>Creature behaviors inspired by real nature</p>
+                        <p className="mt-0.5">Made with love for curious explorers 🌿</p>
                     </div>
                 </div>
             </div>
