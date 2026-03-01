@@ -20,13 +20,12 @@ export const Navigation: React.FC = () => {
 
     return (
         <nav className={`sticky top-0 z-50 transition-all duration-300 ${
-            scrolled ? 'bg-cream/95 backdrop-blur-sm shadow-sm border-b border-field-amber/10' : 'bg-transparent'
+            scrolled ? 'bg-cream/95 backdrop-blur-sm border-b border-ink/[0.04]' : 'bg-transparent'
         }`}>
-            <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
                 {/* Logo */}
-                <Link to="/" className="flex items-center gap-2 group">
-                    <span className="text-3xl">🐛</span>
-                    <span className="font-display text-2xl font-bold text-ink tracking-wide group-hover:text-field-green transition-colors">
+                <Link to="/" className="group">
+                    <span className="font-display text-xl font-bold text-ink tracking-wide group-hover:text-field-green transition-colors">
                         BUGS
                     </span>
                 </Link>
@@ -35,25 +34,25 @@ export const Navigation: React.FC = () => {
                 <div className="hidden md:flex items-center gap-8">
                     <Link
                         to="/"
-                        className={`text-sm font-medium transition-colors ${
-                            isActive('/') ? 'text-field-green' : 'text-ink-light hover:text-ink'
+                        className={`font-sans text-xs tracking-widest uppercase transition-colors ${
+                            isActive('/') ? 'text-ink' : 'text-ink-light/50 hover:text-ink'
                         }`}
                     >
                         Home
                     </Link>
                     <Link
                         to="/feedback"
-                        className={`text-sm font-medium transition-colors ${
-                            isActive('/feedback') ? 'text-field-green' : 'text-ink-light hover:text-ink'
+                        className={`font-sans text-xs tracking-widest uppercase transition-colors ${
+                            isActive('/feedback') ? 'text-ink' : 'text-ink-light/50 hover:text-ink'
                         }`}
                     >
                         Feedback
                     </Link>
                     <Link
                         to="/experience"
-                        className="px-5 py-2.5 bg-field-green text-cream rounded-lg text-sm font-medium hover:bg-field-green-dark transition-colors shadow-sm"
+                        className="font-sans text-xs tracking-widest uppercase text-field-green hover:text-field-green-dark transition-colors"
                     >
-                        Enter Experience →
+                        Experience →
                     </Link>
                 </div>
 
@@ -63,7 +62,7 @@ export const Navigation: React.FC = () => {
                     className="md:hidden p-2 text-ink-light hover:text-ink"
                     aria-label="Menu"
                 >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         {menuOpen ? (
                             <path d="M18 6L6 18M6 6l12 12" />
                         ) : (
@@ -75,11 +74,11 @@ export const Navigation: React.FC = () => {
 
             {/* Mobile menu */}
             {menuOpen && (
-                <div className="md:hidden bg-cream/95 backdrop-blur-sm border-t border-field-amber/10 px-6 py-4 space-y-3">
-                    <Link to="/" className="block text-sm font-medium text-ink-light hover:text-ink">Home</Link>
-                    <Link to="/feedback" className="block text-sm font-medium text-ink-light hover:text-ink">Feedback</Link>
-                    <Link to="/experience" className="block px-4 py-2 bg-field-green text-cream rounded-lg text-sm font-medium text-center">
-                        Enter Experience →
+                <div className="md:hidden bg-cream/95 backdrop-blur-sm border-t border-ink/[0.04] px-6 py-5 space-y-4">
+                    <Link to="/" className="block font-sans text-sm text-ink-light hover:text-ink transition-colors">Home</Link>
+                    <Link to="/feedback" className="block font-sans text-sm text-ink-light hover:text-ink transition-colors">Feedback</Link>
+                    <Link to="/experience" className="block font-sans text-sm text-field-green hover:text-field-green-dark transition-colors">
+                        Experience →
                     </Link>
                 </div>
             )}

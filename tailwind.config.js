@@ -16,6 +16,7 @@ export default {
                 'field-red': '#A0522D',
             },
             fontFamily: {
+                sans: ['Inter', 'system-ui', 'sans-serif'],
                 display: ['Playfair Display', 'Georgia', 'serif'],
                 body: ['Lora', 'Georgia', 'serif'],
                 hand: ['Caveat', 'cursive'],

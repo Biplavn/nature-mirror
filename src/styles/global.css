@@ -10,11 +10,13 @@
     --color-field-amber: #C9923D;
     --color-field-red: #A0522D;
 
-    font-family: 'Lora', Georgia, 'Times New Roman', serif;
-    line-height: 1.6;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
     font-weight: 400;
     color-scheme: light;
     color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -49,17 +51,24 @@ html {
     scroll-behavior: smooth;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar — understated */
 ::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
 }
 ::-webkit-scrollbar-track {
-    background: var(--color-parchment);
+    background: transparent;
 }
 ::-webkit-scrollbar-thumb {
     background: var(--color-field-amber);
-    border-radius: 4px;
+    border-radius: 3px;
+    opacity: 0.6;
 }
 ::-webkit-scrollbar-thumb:hover {
     background: var(--color-ink-light);
+}
+
+/* Selection color */
+::selection {
+    background-color: rgba(74, 124, 89, 0.15);
+    color: var(--color-ink);
 }
