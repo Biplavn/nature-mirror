@@ -1,14 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { NatureMirror } from '../components/NatureMirror';
 import { ExperienceLoader } from '../components/experience/ExperienceLoader';
+import { ButterflySVG } from '../components/illustrations/ButterflySVG';
 import type { CreatureMode } from '../core/graphics/Creature3DRenderer';
+
+const isMobile = () => /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
 
 const ExperiencePage: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const [showLoader, setShowLoader] = useState(true);
     const [sceneReady, setSceneReady] = useState(false);
+    const [mobile] = useState(isMobile);
     const initialMode = (searchParams.get('mode') as CreatureMode) || 'BIRDS';
 
     // Toggle body class for full-viewport dark mode + exit fullscreen on cleanup
@@ -26,6 +30,28 @@ const ExperiencePage: React.FC = () => {
         setSceneReady(true);
         setTimeout(() => setShowLoader(false), 800);
     }, []);
+
+    if (mobile) {
+        return (
+            <div className="min-h-screen bg-cream flex flex-col items-center justify-center px-8 text-center">
+                <div className="w-20 h-20 text-field-green/50 mb-8 animate-float">
+                    <ButterflySVG animated={true} className="w-full h-full" />
+                </div>
+                <h1 className="font-display text-3xl font-bold text-ink mb-3">
+                    Best on Desktop
+                </h1>
+                <p className="font-sans text-ink-light text-base leading-relaxed max-w-xs mb-8">
+                    BUGS uses your webcam and hand tracking — an experience best enjoyed on a desktop or laptop.
+                </p>
+                <Link
+                    to="/"
+                    className="px-8 py-3.5 bg-field-green text-cream rounded-lg font-sans text-sm font-medium tracking-wide uppercase hover:bg-field-green-dark transition-colors"
+                >
+                    Back to Home
+                </Link>
+            </div>
+        );
+    }
 
     return (
         <div className="relative w-full h-full">
