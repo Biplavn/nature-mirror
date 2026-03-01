@@ -247,7 +247,7 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
                                             w-16 h-16 rounded-full flex items-center justify-center
                                             transition-all duration-300 ease-out
                                             ${isActive
-                                                ? 'bg-field-green/70 text-cream scale-110 shadow-lg shadow-field-green/25'
+                                                ? 'bg-cream text-ink scale-110 shadow-lg shadow-cream/20'
                                                 : 'bg-white/[0.07] text-white/40 border border-white/[0.05] hover:bg-white/[0.12] hover:text-white/70 hover:scale-110 hover:shadow-lg hover:shadow-white/5'
                                             }
                                         `}
