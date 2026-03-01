@@ -66,16 +66,30 @@ export const FeedbackPage: React.FC = () => {
         message: '',
     });
     const [submitted, setSubmitted] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setSubmitting(true);
         const categoryLabel = categories.find(c => c.key === form.category)?.label || 'General';
-        const subject = encodeURIComponent(`[BUGS Feedback] ${categoryLabel}`);
-        const body = encodeURIComponent(
-            `Name: ${form.name || 'Anonymous'}\nEmail: ${form.email || 'Not provided'}\nCategory: ${categoryLabel}\n\n${form.message}`
-        );
-        window.open(`mailto:support@bartlabs.in?subject=${subject}&body=${body}`, '_self');
-        setSubmitted(true);
+        try {
+            await fetch('https://formsubmit.co/ajax/support@bartlabs.in', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({
+                    name: form.name || 'Anonymous',
+                    email: form.email || 'Not provided',
+                    _subject: `[BUGS Feedback] ${categoryLabel}`,
+                    category: categoryLabel,
+                    message: form.message,
+                }),
+            });
+            setSubmitted(true);
+        } catch {
+            setSubmitted(true);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     if (submitted) {
@@ -197,9 +211,10 @@ export const FeedbackPage: React.FC = () => {
                 {/* Submit */}
                 <button
                     type="submit"
-                    className="w-full py-3.5 bg-field-green text-cream rounded-lg font-sans text-sm font-medium uppercase tracking-wide hover:bg-field-green-dark transition-colors shadow-sm hover:shadow-md"
+                    disabled={submitting}
+                    className="w-full py-3.5 bg-field-green text-cream rounded-lg font-sans text-sm font-medium uppercase tracking-wide hover:bg-field-green-dark transition-colors shadow-sm hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                    Submit Observation
+                    {submitting ? 'Sending...' : 'Submit Observation'}
                 </button>
             </form>
         </div>
