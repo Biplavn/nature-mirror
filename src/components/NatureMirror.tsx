@@ -275,10 +275,10 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
 
                     {cameraActive && (
                         <div
-                            className="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 opacity-0 animate-fade-up"
+                            className="absolute bottom-36 left-1/2 -translate-x-1/2 z-10 opacity-0 animate-fade-up"
                             style={{ animationDelay: '2s', animationFillMode: 'forwards' }}
                         >
-                            <p className="font-sans text-white/25 text-xs">Move in front of the camera</p>
+                            <p className="font-sans text-white/25 text-xs">Wave your hands in front of the camera ✨</p>
                         </div>
                     )}
                 </>
