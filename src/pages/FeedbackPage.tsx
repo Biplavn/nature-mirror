@@ -73,7 +73,7 @@ export const FeedbackPage: React.FC = () => {
         setSubmitting(true);
         const categoryLabel = categories.find(c => c.key === form.category)?.label || 'General';
         try {
-            await fetch('https://formsubmit.co/ajax/support@bartlabs.in', {
+            await fetch('https://formsubmit.co/ajax/people@bartlabs.in', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                 body: JSON.stringify({
