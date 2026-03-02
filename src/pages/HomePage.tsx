@@ -84,7 +84,7 @@ function HeroSection() {
                     BUGS
                 </h1>
                 <p className="font-hand text-xl md:text-2xl text-field-green/70 mb-8">
-                    Behavioral Understanding through Gesture Simulation
+                    Behavioral Understanding through Gesture Simulation (Totally Made up)
                 </p>
                 <p className="font-sans text-ink-light text-base md:text-lg leading-relaxed max-w-xl mx-auto mb-12">
                     Wave your hands to interact with hummingbirds, fish, bees, and butterflies.
