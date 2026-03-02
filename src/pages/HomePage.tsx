@@ -15,11 +15,11 @@ const creatures = [
         icon: HummingbirdSVG,
         color: 'text-ink/80',
         stats: ['40–80 wing beats/sec', 'Can fly backwards', '9 behavioral states'],
-        description: 'Hummingbirds hover using a unique figure-8 wing pattern. They can fly backwards, sideways, and hover with incredible precision — the only birds that can.',
+        description: 'Hummingbirds hover using a unique figure-8 wing pattern. They can fly backwards, sideways, and hover with incredible precision. The only birds that can.',
         fieldNotes: [
-            'Hold your hand still — a curious one will hover right beside it',
+            'Hold your hand still. A curious one will hover right beside it',
             'Wave quickly to watch them dart away like tiny rockets',
-            'Each bird has its own personality — boldness, curiosity, and territoriality vary',
+            'Each bird has its own personality. Boldness, curiosity, and territoriality vary',
             'They chase each other in dramatic courtship dive displays',
         ],
     },
@@ -31,7 +31,7 @@ const creatures = [
         stats: ['Schooling behavior', '7 behavioral states', 'Cascade startle response'],
         description: 'Fish swim in schools following three simple rules: stay close to friends, swim the same direction, don\'t bump into each other. These create mesmerizing collective motion.',
         fieldNotes: [
-            'Move both hands — watch the whole school follow',
+            'Move both hands and watch the whole school follow',
             'A sudden movement scares one fish, which panics them all',
             'Their bodies wiggle like a wave from head to tail',
             'The bravest fish becomes the leader that everyone follows',
@@ -43,9 +43,9 @@ const creatures = [
         icon: BeeSVG,
         color: 'text-ink/80',
         stats: ['40-bee swarm', '230 Hz wing beat', 'Waggle dance communication'],
-        description: 'When a bee discovers something interesting, it performs a waggle dance — a figure-8 recruitment pattern. Other bees see the dance and fly over to investigate.',
+        description: 'When a bee discovers something interesting, it performs a waggle dance, a figure-8 recruitment pattern. Other bees see the dance and fly over to investigate.',
         fieldNotes: [
-            'Hold your hand near the swarm — a scout will discover it and dance',
+            'Hold your hand near the swarm. A scout will discover it and dance',
             'Other bees follow the dancer to your hand in a cascade',
             'They scatter when startled but recover faster than any other creature',
             'The waggle dance is one of the most sophisticated communication systems in nature',
@@ -57,12 +57,12 @@ const creatures = [
         icon: ButterflySVG,
         color: 'text-ink/80',
         stats: ['8–12 Hz wing beat', 'Flap-glide cycle', 'Extremely startle-sensitive'],
-        description: 'Butterflies alternate between rapid wing flaps and graceful glides. They\'re the most sensitive creatures here — even a slow hand gesture can cause them to scatter like leaves.',
+        description: 'Butterflies alternate between rapid wing flaps and graceful glides. They\'re the most sensitive creatures here. Even a slow hand gesture can cause them to scatter like leaves.',
         fieldNotes: [
-            'Stay perfectly still — a butterfly might perch on your hand',
+            'Stay perfectly still. A butterfly might perch on your hand',
             'Move very slowly and they\'ll drift alongside you',
             'Two butterflies near each other will perform a spiral dance',
-            'The most sensitive creatures — they notice the tiniest movements',
+            'The most sensitive creatures. They notice the tiniest movements',
         ],
     },
 ];
@@ -88,7 +88,7 @@ function HeroSection() {
                 </p>
                 <p className="font-sans text-ink-light text-base md:text-lg leading-relaxed max-w-xl mx-auto mb-12">
                     Wave your hands to interact with hummingbirds, fish, bees, and butterflies.
-                    Each creature behaves just like in nature — responding to your movements in real time.
+                    Each creature behaves just like in nature, responding to your movements in real time.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-5">

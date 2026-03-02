@@ -41,7 +41,7 @@ const ExperiencePage: React.FC = () => {
                     Best on Desktop
                 </h1>
                 <p className="font-sans text-ink-light text-base leading-relaxed max-w-xs mb-8">
-                    BUGS uses your webcam and hand tracking — an experience best enjoyed on a desktop or laptop.
+                    BUGS uses your webcam and hand tracking, an experience best enjoyed on a desktop or laptop.
                 </p>
                 <Link
                     to="/"
