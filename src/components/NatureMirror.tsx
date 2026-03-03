@@ -70,6 +70,7 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
     const [error, setError] = useState<string | null>(null);
     const [cameraActive, setCameraActive] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [handsDetected, setHandsDetected] = useState(false);
 
     const systemsRef = useRef<{
         vision: VisionManager | null;
@@ -78,6 +79,11 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
         vision: null,
         renderer: null
     });
+
+    // Refs for clap detection (needs access inside animate closure)
+    const activeModeRef = useRef<CreatureMode>(activeMode);
+    const clapRef = useRef({ prevDist: 1, lastClapTime: 0 });
+    const handleModeChangeRef = useRef<(mode: CreatureMode) => void>(() => {});
 
     // Fullscreen change listener
     useEffect(() => {
@@ -126,6 +132,36 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
                     if (!renderer) return;
 
                     const mask = vision?.getMask();
+
+                    // Detect first hand presence
+                    if (mask && (mask.hands.left || mask.hands.right)) {
+                        setHandsDetected(true);
+                    }
+
+                    // Clap detection — switch creature mode
+                    if (mask?.hands.left && mask?.hands.right) {
+                        const dx = mask.hands.left.position.x - mask.hands.right.position.x;
+                        const dy = mask.hands.left.position.y - mask.hands.right.position.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const clap = clapRef.current;
+
+                        if (
+                            dist < 0.08 &&
+                            clap.prevDist > 0.15 &&
+                            Date.now() - clap.lastClapTime > 1500 &&
+                            !renderer.isTransitioning
+                        ) {
+                            const currentIdx = MODES_CONFIG.findIndex(m => m.key === activeModeRef.current);
+                            const nextIdx = (currentIdx + 1) % MODES_CONFIG.length;
+                            handleModeChangeRef.current(MODES_CONFIG[nextIdx].key);
+                            clap.lastClapTime = Date.now();
+                        }
+
+                        clap.prevDist = dist;
+                    } else {
+                        clapRef.current.prevDist = 1;
+                    }
+
                     if (mask) {
                         renderer.updateTracking({
                             leftHand: mask.hands.left ? {
@@ -189,8 +225,10 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
     const handleModeChange = useCallback((mode: CreatureMode) => {
         if (systemsRef.current.renderer?.isTransitioning) return;
         setActiveMode(mode);
+        activeModeRef.current = mode;
         systemsRef.current.renderer?.setMode(mode);
     }, []);
+    handleModeChangeRef.current = handleModeChange;
 
     const toggleFullscreen = useCallback(() => {
         if (document.fullscreenElement) {
@@ -273,12 +311,21 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
                         {isFullscreen ? <ContractIcon /> : <ExpandIcon />}
                     </button>
 
-                    {cameraActive && (
+                    {cameraActive && !handsDetected && (
                         <div
                             className="absolute bottom-36 left-1/2 -translate-x-1/2 z-10 opacity-0 animate-fade-up"
                             style={{ animationDelay: '2s', animationFillMode: 'forwards' }}
                         >
                             <p className="font-sans text-white/25 text-xs">Wave your hands in front of the camera ✨</p>
+                        </div>
+                    )}
+
+                    {cameraActive && handsDetected && (
+                        <div
+                            className="absolute bottom-36 left-1/2 -translate-x-1/2 z-10 opacity-0 animate-fade-up"
+                            style={{ animationFillMode: 'forwards' }}
+                        >
+                            <p className="font-sans text-white/25 text-xs">Clap to switch creatures 👏</p>
                         </div>
                     )}
                 </>
