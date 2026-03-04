@@ -32,7 +32,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 
-export type CreatureMode = 'BIRDS' | 'FISH' | 'BEES' | 'BUTTERFLIES';
+export type CreatureMode = 'BIRDS' | 'FISH' | 'BEES' | 'BUTTERFLIES' | 'JELLYFISH';
 
 export interface TrackingData {
     leftHand: { x: number; y: number; confidence: number } | null;
@@ -287,6 +287,76 @@ interface Butterfly {
     spiralPhase: number;
 }
 
+// ========================================
+// JELLYFISH TYPES
+// ========================================
+
+type JellyfishBehavior = 'DRIFTING' | 'PULSING' | 'CURIOUS' | 'STARTLED' | 'GATHERING' | 'DISPLAYING';
+
+interface TentacleStrand {
+    points: THREE.Points;
+    positions: Float32Array;
+    velocities: Float32Array;
+    attachAngle: number;
+    length: number;
+}
+
+interface Jellyfish {
+    index: number;
+    group: THREE.Group;
+    bellMesh: THREE.Mesh;
+    bellOrigPositions: Float32Array;
+    bellHeight: number;
+    tentacles: TentacleStrand[];
+
+    position: THREE.Vector3;
+    velocity: THREE.Vector3;
+    acceleration: THREE.Vector3;
+    targetPosition: THREE.Vector3;
+    trackingTarget: 'leftHand' | 'rightHand' | 'drift';
+
+    behavior: JellyfishBehavior;
+    behaviorTimer: number;
+    phase: number;
+
+    // Personality
+    boldness: number;
+    curiosity: number;
+    luminosity: number;
+
+    // Physics
+    maxSpeed: number;
+    cruiseSpeed: number;
+
+    // Bell animation
+    pulsePhase: number;
+    pulseRate: number;
+    pulseAmplitude: number;
+
+    // Rotation
+    smoothedYaw: number;
+    smoothedPitch: number;
+    smoothedRoll: number;
+
+    // Startle / bioluminescence
+    startleIntensity: number;
+    fleeDirection: THREE.Vector3;
+    glowIntensity: number;
+    targetGlowIntensity: number;
+
+    // Shader materials (for uniform updates)
+    bellMat: THREE.ShaderMaterial;
+    gelMat: THREE.ShaderMaterial;
+    dustMat: THREE.ShaderMaterial;
+
+    // Color
+    bellColor: number;
+    glowColor: number;
+
+    // Creature-to-creature
+    gatherPartner: Jellyfish | null;
+}
+
 export class Creature3DRenderer {
     private scene: THREE.Scene;
     private camera: THREE.PerspectiveCamera;
@@ -296,6 +366,7 @@ export class Creature3DRenderer {
     private fish: Fish[] = [];
     private bees: Bee[] = [];
     private butterflies: Butterfly[] = [];
+    private jellyfish: Jellyfish[] = [];
     private sharedBeeMaterials: Map<string, THREE.Material> = new Map();
     private sharedBeeGeometries: Map<string, THREE.BufferGeometry> = new Map();
     private birdModel: GLTF | null = null;
@@ -306,7 +377,7 @@ export class Creature3DRenderer {
     private time = 0;
     private width: number;
     private height: number;
-    private currentMode: CreatureMode = 'BIRDS';
+    private currentMode: CreatureMode = 'BEES';
     private creatureCount: number;
 
     // Bee count
@@ -358,19 +429,19 @@ export class Creature3DRenderer {
     private readonly HOVER_DRIFT_FREQUENCY = 0.8;   // Very slow drift (subtle)
     private readonly HOVER_VERTICAL_BOB = 0.02;     // Minimal vertical bob (1-2° = ~0.02 rad)
 
-    // Flight speeds (relative units) - smoother, more controlled
-    private readonly BIRD_HOVER_SPEED = 2.0;        // Gentle hovering movement
-    private readonly BIRD_CRUISE_SPEED = 6;         // Smooth cruising
-    private readonly BIRD_DART_SPEED = 15;          // Quick but controlled darting
-    private readonly BIRD_MAX_SPEED = 25;           // Reasonable maximum
+    // Flight speeds — fast and precise ("dart like tiny rockets")
+    private readonly BIRD_HOVER_SPEED = 3.0;        // Responsive hovering
+    private readonly BIRD_CRUISE_SPEED = 9;         // Swift cruising
+    private readonly BIRD_DART_SPEED = 22;          // Rocket-like darting
+    private readonly BIRD_MAX_SPEED = 35;           // High maximum
 
-    // Acceleration - gentler for smoother motion
-    private readonly BIRD_ACCELERATION = 25;        // Smooth acceleration
-    private readonly BIRD_TURN_RATE = 4;            // Gradual turns
+    // Acceleration — snappy for precise repositioning
+    private readonly BIRD_ACCELERATION = 40;        // Quick acceleration
+    private readonly BIRD_TURN_RATE = 6;            // Agile turns
 
-    // Behavioral triggers
-    private readonly BIRD_CURIOSITY_RADIUS = 18;    // Distance to notice hands
-    private readonly BIRD_STARTLE_THRESHOLD = 10;   // Hand velocity to startle
+    // Behavioral triggers — curious and alert
+    private readonly BIRD_CURIOSITY_RADIUS = 28;    // Notice hands from far away
+    private readonly BIRD_STARTLE_THRESHOLD = 6;    // Sensitive to hand velocity
     private readonly BIRD_STARTLE_RADIUS = 8;       // Distance for startle
     private readonly BIRD_STARTLE_DURATION = 0.8;   // Quick recovery
     private readonly BIRD_TERRITORIAL_RADIUS = 5;   // Distance to trigger chase
@@ -385,17 +456,17 @@ export class Creature3DRenderer {
     private readonly ALIGNMENT_WEIGHT = 1.5;
     private readonly COHESION_WEIGHT = 0.3;
 
-    private readonly CURIOSITY_RADIUS = 15;
+    private readonly CURIOSITY_RADIUS = 22;
 
-    private readonly STARTLE_THRESHOLD = 8;
+    private readonly STARTLE_THRESHOLD = 5;
     private readonly STARTLE_RADIUS = 12;
     private readonly STARTLE_DURATION = 1.5;
     private readonly FLEE_SPEED = 18;
 
-    private readonly FISH_CRUISE_SPEED = 4;
-    private readonly FISH_MAX_SPEED = 12;
-    private readonly FISH_DRAG = 0.92;
-    private readonly TURN_RATE = 3;
+    private readonly FISH_CRUISE_SPEED = 5.5;
+    private readonly FISH_MAX_SPEED = 16;
+    private readonly FISH_DRAG = 0.94;
+    private readonly TURN_RATE = 4;
 
     // ========================================
     // BEE PHYSICS CONSTANTS
@@ -408,9 +479,9 @@ export class Creature3DRenderer {
     private readonly BEE_ZIGZAG_AMPLITUDE = 0.3; // Side-to-side zigzag
     private readonly BEE_ZIGZAG_FREQUENCY = 3;   // Zigzag cycles per second
 
-    // Flight speeds - bees are fast!
-    private readonly BEE_CRUISE_SPEED = 12;      // Normal flight (doubled)
-    private readonly BEE_MAX_SPEED = 28;         // Maximum speed (nearly doubled)
+    // Flight speeds — bees are fast and energetic!
+    private readonly BEE_CRUISE_SPEED = 16;      // Energetic cruising
+    private readonly BEE_MAX_SPEED = 36;         // High maximum speed
 
     // Swarm behavior
     private readonly BEE_SWARM_RADIUS = 8;       // Radius of swarm cohesion
@@ -419,11 +490,11 @@ export class Creature3DRenderer {
     private readonly BEE_COHESION_WEIGHT = 1.0;
     private readonly BEE_SEPARATION_WEIGHT = 2.0;
 
-    // Behavioral triggers
-    private readonly BEE_CURIOSITY_RADIUS = 12;  // Distance to notice hands
-    private readonly BEE_STARTLE_THRESHOLD = 12; // Hand velocity to startle
+    // Behavioral triggers — alert and fast-recovering
+    private readonly BEE_CURIOSITY_RADIUS = 22;  // Notice hands from far away
+    private readonly BEE_STARTLE_THRESHOLD = 7;  // Sensitive to hand velocity
     private readonly BEE_STARTLE_RADIUS = 6;     // Distance for startle
-    private readonly BEE_STARTLE_DURATION = 0.6; // Quick recovery
+    private readonly BEE_STARTLE_DURATION = 0.4; // Fastest recovery of all creatures
 
     // Dance behavior (waggle dance)
     private readonly BEE_DANCE_RADIUS = 5;       // Distance from hand to start dancing
@@ -439,10 +510,10 @@ export class Creature3DRenderer {
     private readonly BUTTERFLY_WING_FREQUENCY = 10;    // ~10 Hz wing beat (real: 8-12 Hz)
     private readonly BUTTERFLY_FLAP_AMPLITUDE = 0.8;   // Wing flap visual amplitude
 
-    // Flight speeds - butterflies are fast and erratic
-    private readonly BUTTERFLY_CRUISE_SPEED = 3.5;     // Frantic cruising
-    private readonly BUTTERFLY_MAX_SPEED = 8;          // Maximum speed (when startled)
-    private readonly BUTTERFLY_DRIFT_SPEED = 2.5;      // Fast drifting
+    // Flight speeds — graceful, not fast
+    private readonly BUTTERFLY_CRUISE_SPEED = 4.0;     // Graceful cruising
+    private readonly BUTTERFLY_MAX_SPEED = 10;         // Moderate max (still graceful)
+    private readonly BUTTERFLY_DRIFT_SPEED = 3.5;      // Gentle drifting
 
     // Drift mechanics - butterflies dart and zigzag
     private readonly BUTTERFLY_DRIFT_FREQUENCY = 0.5;  // Faster direction shifts
@@ -451,17 +522,42 @@ export class Creature3DRenderer {
     // Flap-pause rhythm - butterflies alternate flapping and gliding
     private readonly BUTTERFLY_FLAP_CYCLE = 0.8;       // Faster flap-pause cycle
 
-    // Behavioral triggers
-    private readonly BUTTERFLY_CURIOSITY_RADIUS = 14;  // Distance to notice hands
-    private readonly BUTTERFLY_STARTLE_THRESHOLD = 4;   // Very sensitive to hand movement
+    // Behavioral triggers — the most sensitive creatures
+    private readonly BUTTERFLY_CURIOSITY_RADIUS = 28;  // LARGEST awareness ("notice tiniest movements")
+    private readonly BUTTERFLY_STARTLE_THRESHOLD = 2;   // LOWEST threshold ("even a slow gesture scatters")
     private readonly BUTTERFLY_STARTLE_RADIUS = 10;    // Large scatter radius
     private readonly BUTTERFLY_STARTLE_DURATION = 1.2; // Recovery time
-    private readonly BUTTERFLY_SCATTER_THRESHOLD = 2;  // Even slower movement causes scatter
-    private readonly BUTTERFLY_PERCH_RADIUS = 3;       // Distance to "land" on hand
+    private readonly BUTTERFLY_SCATTER_THRESHOLD = 1;  // Ultra-sensitive scatter
+    private readonly BUTTERFLY_PERCH_RADIUS = 5;       // Easier to perch ("might perch on your hand")
 
     // Separation
     private readonly BUTTERFLY_SEPARATION_RADIUS = 4.0;
     private readonly BUTTERFLY_SEPARATION_WEIGHT = 2.5;
+
+    // ========================================
+    // JELLYFISH PHYSICS CONSTANTS
+    // ========================================
+
+    private readonly JELLY_COUNT = 10;
+    private readonly JELLY_CRUISE_SPEED = 2.0;
+    private readonly JELLY_MAX_SPEED = 5.0;
+    private readonly JELLY_PULSE_RATE = 0.8;
+    private readonly JELLY_PULSE_AMPLITUDE = 0.15;
+    private readonly JELLY_CURIOSITY_RADIUS = 12;
+    private readonly JELLY_STARTLE_THRESHOLD = 6;
+    private readonly JELLY_STARTLE_RADIUS = 10;
+    private readonly JELLY_STARTLE_DURATION = 1.2;
+    private readonly JELLY_SEPARATION_RADIUS = 4.0;
+    private readonly JELLY_SEPARATION_WEIGHT = 2.0;
+    private readonly JELLY_DRAG = 0.95;
+
+    private readonly JELLY_PALETTES = [
+        { diffuse: 0xFFA9D2, diffuseB: 0x70256C, gel: 0x415AB5, tentacle: 0x997299 }, // Pink/Purple (ethereal medusa)
+        { diffuse: 0xA9D4FF, diffuseB: 0x1B2D6C, gel: 0x8241B5, tentacle: 0x7282AA }, // Ice blue / deep navy
+        { diffuse: 0xBBEECC, diffuseB: 0x1A5535, gel: 0x41B5A0, tentacle: 0x72AA89 }, // Mint / deep forest
+        { diffuse: 0xFFCBA9, diffuseB: 0x6C2D25, gel: 0x4185B5, tentacle: 0xAA8572 }, // Peach / deep rust
+        { diffuse: 0xCCA9FF, diffuseB: 0x2D1A6C, gel: 0xB54170, tentacle: 0x8272AA }, // Lavender / deep indigo
+    ];
 
     constructor(container: HTMLElement, count: number = 5) {
         this.width = window.innerWidth;
@@ -658,6 +754,22 @@ export class Creature3DRenderer {
             this.disposeGroup(b.group);
         });
         this.butterflies = [];
+
+        this.jellyfish.forEach(j => {
+            // Dispose all children (fill, wire, rim, glow, tentacles, dust)
+            j.group.traverse((child) => {
+                if (child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.Points) {
+                    child.geometry?.dispose();
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else if (child.material) {
+                        child.material.dispose();
+                    }
+                }
+            });
+            this.scene.remove(j.group);
+        });
+        this.jellyfish = [];
     }
 
     private createCreatures() {
@@ -671,6 +783,8 @@ export class Creature3DRenderer {
             this.createBees();
         } else if (this.currentMode === 'BUTTERFLIES') {
             this.createButterflies();
+        } else if (this.currentMode === 'JELLYFISH') {
+            this.createJellyfish();
         }
     }
 
@@ -1723,6 +1837,8 @@ export class Creature3DRenderer {
             this.updateAllBees(delta);
         } else if (this.currentMode === 'BUTTERFLIES') {
             this.updateAllButterflies(delta);
+        } else if (this.currentMode === 'JELLYFISH') {
+            this.updateAllJellyfish(delta);
         } else {
             this.updateAllHummingbirds(delta);
         }
@@ -1812,6 +1928,8 @@ export class Creature3DRenderer {
             placeAndLaunch(this.bees, 6);
         } else if (this.currentMode === 'BUTTERFLIES') {
             placeAndLaunch(this.butterflies, 2);
+        } else if (this.currentMode === 'JELLYFISH') {
+            placeAndLaunch(this.jellyfish, 2);
         }
     }
 
@@ -1848,6 +1966,13 @@ export class Creature3DRenderer {
                     b.behaviorTimer = 2 + Math.random() * 3;
                 }
             }
+        } else if (this.currentMode === 'JELLYFISH') {
+            for (const j of this.jellyfish) {
+                if (j.behavior !== 'STARTLED') {
+                    j.behavior = 'CURIOUS';
+                    j.behaviorTimer = 2 + Math.random() * 3;
+                }
+            }
         }
     }
 
@@ -1865,6 +1990,11 @@ export class Creature3DRenderer {
         for (const bird of this.hummingbirds) bird.mixer?.update(delta);
         for (const bee of this.bees) { bee.mixer?.update(delta); }
         for (const b of this.butterflies) { b.mixer?.update(delta); }
+        // Update jellyfish tentacles during exit so they trail naturally
+        for (const j of this.jellyfish) {
+            this.updateJellyfishTentacles(j, delta);
+            this.updateJellyfishBellPulse(j, delta);
+        }
     }
 
     /**
@@ -1893,6 +2023,7 @@ export class Creature3DRenderer {
             case 'FISH': return this.fish;
             case 'BEES': return this.bees;
             case 'BUTTERFLIES': return this.butterflies;
+            case 'JELLYFISH': return this.jellyfish;
         }
     }
 
@@ -2282,8 +2413,8 @@ export class Creature3DRenderer {
                     const toTarget = targetPos.clone().sub(bird.position);
                     const dist = toTarget.length();
 
-                    // Strong spring for snappy repositioning
-                    const springStrength = dist > 5 ? 40 : 25;
+                    // Strong spring — precise, snappy repositioning
+                    const springStrength = dist > 5 ? 60 : 38;
                     bird.acceleration.add(toTarget.multiplyScalar(springStrength));
 
                     // Strong damping for critically-damped settling (no oscillation)
@@ -2418,8 +2549,8 @@ export class Creature3DRenderer {
                 const toReturn = returnTarget.clone().sub(bird.position);
                 const dist = toReturn.length();
 
-                // Strong spring tracking for fast return to hand
-                const springStrength = dist > 3 ? 50 : 30;
+                // Very strong spring — fast return to hand
+                const springStrength = dist > 3 ? 70 : 45;
                 bird.acceleration.add(toReturn.clone().multiplyScalar(springStrength));
 
                 // Strong damping for stable arrival
@@ -2450,8 +2581,8 @@ export class Creature3DRenderer {
                     const toTarget = targetPos.clone().sub(bird.position);
                     const dist = toTarget.length();
 
-                    // Strong spring for quick repositioning
-                    const springStrength = dist > 5 ? 40 : 22;
+                    // Strong spring — quick, precise repositioning
+                    const springStrength = dist > 5 ? 60 : 32;
                     bird.acceleration.add(toTarget.multiplyScalar(springStrength));
 
                     // Strong damping for stable, critically-damped settling
@@ -2646,7 +2777,7 @@ export class Creature3DRenderer {
         }
 
         // Limit acceleration
-        const maxAccel = bird.behavior === 'STARTLED' ? this.BIRD_ACCELERATION * 2 : this.BIRD_ACCELERATION;
+        const maxAccel = bird.behavior === 'STARTLED' ? this.BIRD_ACCELERATION * 2.5 : this.BIRD_ACCELERATION;
         if (bird.acceleration.length() > maxAccel) {
             bird.acceleration.normalize().multiplyScalar(maxAccel);
         }
@@ -2713,8 +2844,8 @@ export class Creature3DRenderer {
             targetRoll = normalizedDiff * 0.3;  // Bank into the turn
         }
 
-        // Smooth rotation interpolation
-        const smoothFactor = dt * 5.0;  // Responsive turning
+        // Smooth rotation interpolation — precise and snappy
+        const smoothFactor = dt * 9.0;  // Fast, precise turning
         bird.smoothedYaw += (targetYaw - bird.smoothedYaw) * smoothFactor;
         bird.smoothedPitch += (targetPitch - bird.smoothedPitch) * smoothFactor * 0.6;
         bird.smoothedRoll += (targetRoll - bird.smoothedRoll) * smoothFactor * 0.8;
@@ -2759,7 +2890,7 @@ export class Creature3DRenderer {
         const worldTargetPitch = Math.asin(Math.max(-1, Math.min(1, -tv.y))) * 0.3;
 
         // Faster smoothing so head doesn't lag behind body
-        const headSmoothing = Math.min(1, delta * 6); // ~6 Hz response
+        const headSmoothing = Math.min(1, delta * 12); // ~12 Hz — heads snap to targets
         bird.headRotation.y += (worldTargetYaw - bird.headRotation.y) * headSmoothing;
         bird.headRotation.x += (worldTargetPitch - bird.headRotation.x) * headSmoothing;
 
@@ -2827,7 +2958,7 @@ export class Creature3DRenderer {
 
             // Smooth transition to target speed
             const currentSpeed = bird.action.timeScale;
-            const transitionRate = bird.behavior === 'STARTLED' ? 0.3 : 0.1; // Faster response when startled
+            const transitionRate = bird.behavior === 'STARTLED' ? 0.5 : 0.2; // Fast visual wing response
             bird.action.timeScale += (targetSpeed - currentSpeed) * transitionRate;
 
             // Minimum wing speed - hummingbirds never stop flapping while airborne
@@ -3101,12 +3232,12 @@ export class Creature3DRenderer {
                     const toTarget = targetPos.clone().sub(fish.position);
                     const dist = toTarget.length();
 
-                    // Gentle spring - fish glide toward position, not snap
-                    const springStrength = dist > 8 ? 8 : 4;
+                    // Smooth spring — fish glide fluidly toward position
+                    const springStrength = dist > 8 ? 12 : 6;
                     fish.acceleration.add(toTarget.normalize().multiplyScalar(springStrength * Math.min(dist, 5)));
 
                     // Damping
-                    fish.acceleration.add(fish.velocity.clone().multiplyScalar(-3));
+                    fish.acceleration.add(fish.velocity.clone().multiplyScalar(-3.5));
                 }
                 break;
             }
@@ -3288,7 +3419,7 @@ export class Creature3DRenderer {
         }
 
         // Smooth rotation transitions
-        const turnSmooth = dt * 3.0;
+        const turnSmooth = dt * 4.5;  // Smooth but responsive
         // Wrap heading difference to avoid 360-degree flips
         const headingErr = Math.atan2(Math.sin(targetHeading - fish.smoothedHeading), Math.cos(targetHeading - fish.smoothedHeading));
         fish.smoothedHeading += headingErr * turnSmooth;
@@ -3689,8 +3820,8 @@ export class Creature3DRenderer {
                     const toTarget = targetPos.clone().sub(bee.position);
                     const dist = toTarget.length();
 
-                    // Smooth spring
-                    const springStrength = dist > 5 ? 38 : 24;
+                    // Strong spring — energetic investigation
+                    const springStrength = dist > 5 ? 55 : 35;
                     bee.acceleration.add(toTarget.multiplyScalar(springStrength));
 
                     // Smooth damping
@@ -3770,8 +3901,8 @@ export class Creature3DRenderer {
                     const toTarget = targetPos.clone().sub(bee.position);
                     const dist = toTarget.length();
 
-                    // Smooth spring
-                    const springStrength = dist > 5 ? 36 : 22;
+                    // Energetic spring — swarming toward hand
+                    const springStrength = dist > 5 ? 52 : 32;
                     bee.acceleration.add(toTarget.multiplyScalar(springStrength));
 
                     // Smooth damping
@@ -3908,7 +4039,7 @@ export class Creature3DRenderer {
         // BEES FACE THE DIRECTION THEY ARE FLYING
         // No bee can fly backwards - always face velocity
         const speed = bee.velocity.length();
-        const turnSmooth = dt * 5.0;
+        const turnSmooth = dt * 8.0;  // Buzzy and energetic turning
 
         // Yaw: face movement direction
         let targetYaw = bee.smoothedYaw;
@@ -4176,9 +4307,9 @@ export class Creature3DRenderer {
                     );
                     tv2.copy(activeHand).add(tv1).sub(b.position);
 
-                    // Spring-damper: strong enough to reach hand, damped to not oscillate
-                    b.acceleration.addScaledVector(tv2, 10);
-                    b.acceleration.addScaledVector(b.velocity, -5);
+                    // Spring-damper: gentle approach, graceful arrival
+                    b.acceleration.addScaledVector(tv2, 14);
+                    b.acceleration.addScaledVector(b.velocity, -6);
                 } else {
                     b.behavior = 'DRIFTING';
                 }
@@ -4198,10 +4329,10 @@ export class Creature3DRenderer {
                     );
                     tv2.copy(activeHand).add(tv1).sub(b.position);
 
-                    // Strong spring to hold position
-                    b.acceleration.addScaledVector(tv2, 20);
+                    // Strong spring to hold perch position
+                    b.acceleration.addScaledVector(tv2, 26);
                     // Strong damping for stability
-                    b.acceleration.addScaledVector(b.velocity, -8);
+                    b.acceleration.addScaledVector(b.velocity, -9);
                 } else {
                     b.behavior = 'DRIFTING';
                     b.behaviorTimer = 0;
@@ -4330,9 +4461,9 @@ export class Creature3DRenderer {
                     );
                     tv2.copy(activeHand).add(tv1).sub(b.position);
 
-                    // Spring-damper to drift toward hand area
-                    b.acceleration.addScaledVector(tv2, 6);
-                    b.acceleration.addScaledVector(b.velocity, -3.5);
+                    // Spring-damper to drift gracefully toward hand area
+                    b.acceleration.addScaledVector(tv2, 9);
+                    b.acceleration.addScaledVector(b.velocity, -4.5);
                 } else {
                     // Drifting - pick new random waypoints across screen
                     // Same bee-style approach: directional force, no velocity damping
@@ -4521,7 +4652,7 @@ export class Creature3DRenderer {
 
     private updateButterflyRotation(b: Butterfly, dt: number) {
         const speed = b.velocity.length();
-        const turnSmooth = dt * 3.5; // Butterflies turn more slowly/gracefully
+        const turnSmooth = dt * 5.0; // Graceful but noticeably quicker
 
         // Yaw: face movement direction
         let targetYaw = b.smoothedYaw;
@@ -4598,6 +4729,928 @@ export class Creature3DRenderer {
             if (mesh.material && (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity !== undefined) {
                 const mat = mesh.material as THREE.MeshStandardMaterial;
                 mat.emissiveIntensity += (glowIntensity - mat.emissiveIntensity) * delta * 3;
+            }
+        }
+    }
+
+    // ========================================
+    // JELLYFISH CREATION & UPDATE
+    // ========================================
+
+    private createJellyfish() {
+        const count = this.JELLY_COUNT;
+        const targets: Jellyfish['trackingTarget'][] = ['leftHand', 'rightHand', 'drift'];
+
+        // ═══════════════════════════════════════════════════════════════
+        // GLSL Shaders — custom procedural jellyfish rendering
+        // Technique: Fresnel rim lighting + procedural UV distortion
+        // ═══════════════════════════════════════════════════════════════
+
+        // Bell vertex shader — passes UV + radial normal
+        const bellVertShader = `
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            void main() {
+                vUv = uv;
+                vNormal = normalize(position);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        // Bell fragment shader — organic procedural pattern with rim-dependent translucency
+        const bellFragShader = `
+            uniform vec3 diffuse;
+            uniform vec3 diffuseB;
+            uniform float opacity;
+            uniform float time;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+
+            const vec3 eye = vec3(0.0, 0.0, 1.0);
+
+            float wave(float vMin, float vMax, float t) {
+                float halfRange = (vMax - vMin) / vMax * 0.5;
+                return (sin(t) * halfRange + (1.0 - halfRange)) * vMax;
+            }
+
+            float organicPattern(vec2 uv, float base, float sc) {
+                // Radial wave bands
+                base -= sin(uv.x * 55.0) * 0.22 + sin(uv.x * 48.0 * sc) * 0.28 + 0.72;
+                // Cross-wave interference
+                base -= sin(uv.y * sin(uv.x * 6.0) * 4.5 * sc) * 0.06;
+                base -= sin(uv.y * sin((1.0 - uv.x) * 6.0) * 4.5 * sc) * 0.06;
+                // Organic curl patterns
+                base -= sin(uv.y * sin(uv.y + cos(uv.x) * 2.2) * 3.2 * sc) * 0.14;
+                base -= sin(uv.y * sin(uv.y + cos(1.0 - uv.x) * 2.2) * 3.2 * sc) * 0.14;
+                // Lower bell veins
+                base -= sin((uv.y - 1.3) * sin(uv.y + cos(uv.x - 0.8) * 2.0) * 3.8 * sc) * 0.14;
+                base -= sin((uv.y - 1.3) * sin(uv.y + cos(uv.x) * 2.2) * 2.8 * sc) * 0.14;
+                // Vertical gradient
+                base -= sin(uv.y * 4.8) * 0.16 + sin(uv.y * 2.2) * 1.2;
+                return base;
+            }
+
+            void main() {
+                vec3 normal = normalize(mat3(viewMatrix) * vNormal);
+                float rim = 1.0 - max(dot(eye, normal), 0.0);
+                float pattern = 0.0;
+
+                vec2 uv0 = vUv;
+                vec2 uv1 = uv0 + rim;
+                vec2 uv2 = vec2(-rim * 0.25);
+                vec2 uv3 = vec2(rim, uv0.y);
+
+                float sc0 = wave(8.0, 15.0, time * 0.25 + 0.5);
+                float sc1 = wave(12.0, 20.0, time * 0.125);
+
+                pattern += max(organicPattern(uv0, 2.0, sc0), -0.5);
+                pattern += max(organicPattern(uv1, 2.0, sc1), 0.25);
+                pattern += max(organicPattern(uv2, 1.0, 1.0), -0.25);
+                pattern += max(organicPattern(uv3, 1.0, 1.0), -0.25);
+
+                gl_FragColor = vec4(
+                    mix(diffuse, diffuseB, smoothstep(-0.5, 0.5, pattern)),
+                    (1.0 - smoothstep(-0.5, 2.5, pattern)) * opacity
+                );
+            }
+        `;
+
+        // Gel vertex shader — rim glow overlay
+        const gelVertShader = `
+            varying vec3 vNormal;
+            void main() {
+                vNormal = normalize(position);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        // Gel fragment shader — layered smoothstep rim lighting
+        const gelFragShader = `
+            uniform vec3 diffuse;
+            uniform float opacity;
+            varying vec3 vNormal;
+            void main() {
+                vec3 eye = vec3(0.0, 0.0, 1.0);
+                vec3 normal = normalize(mat3(viewMatrix) * vNormal);
+                float rim = 1.0 - max(dot(eye, normal), 0.0);
+                float rimLight = 0.25 +
+                    smoothstep(0.25, 1.0, rim) * 0.5 +
+                    smoothstep(0.90, 1.0, rim) * 0.8;
+                gl_FragColor = vec4(diffuse * vec3(rimLight), rimLight * opacity);
+            }
+        `;
+
+        // Tentacle vertex shader — distance from center
+        const tentacleVertShader = `
+            varying float vDist;
+            void main() {
+                vDist = length(position);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        // Tentacle fragment shader — inverse-square distance falloff
+        const tentacleFragShader = `
+            uniform vec3 diffuse;
+            uniform float opacity;
+            uniform float area;
+            varying float vDist;
+            void main() {
+                float illumination = area * 2.0 / max(vDist * vDist, 0.01);
+                gl_FragColor = vec4(
+                    mix(vec3(1.0), diffuse, clamp(illumination, 0.0, 1.25)),
+                    clamp(opacity * illumination * illumination, 0.0, opacity)
+                );
+            }
+        `;
+
+        // Dust vertex shader — time-animated drift with sinusoidal wobble
+        const dustVertShader = `
+            uniform float size;
+            uniform float scale;
+            uniform float time;
+            uniform float area;
+            varying float vDist;
+            void main() {
+                float offsetY = mod(position.y - time, area) - area * 0.5;
+                vec3 offsetPos = vec3(
+                    position.x + sin(cos(offsetY * 0.1) + sin(offsetY * 0.1 + position.x * 0.1) * 2.0),
+                    offsetY,
+                    position.z + sin(cos(offsetY * 0.1) + sin(offsetY * 0.1 + position.z * 0.1) * 2.0)
+                );
+                vDist = length(offsetPos);
+                vec4 mvPosition = modelViewMatrix * vec4(offsetPos, 1.0);
+                gl_PointSize = size * (scale / length(mvPosition.xyz));
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+
+        // Dust fragment shader — distance-based opacity falloff
+        const dustFragShader = `
+            uniform vec3 color;
+            uniform float opacity;
+            uniform float area;
+            varying float vDist;
+            void main() {
+                float radius = area * 0.5;
+                float illumination = max(0.0, (radius - vDist) / radius);
+                gl_FragColor = vec4(color, illumination * illumination * opacity);
+            }
+        `;
+
+        // ═══════════════════════════════════════════════════════════════
+        // Create jellyfish instances
+        // ═══════════════════════════════════════════════════════════════
+
+        for (let i = 0; i < count; i++) {
+            const palette = this.JELLY_PALETTES[i % this.JELLY_PALETTES.length];
+            const group = new THREE.Group();
+
+            // ── Bell profile (tall mushroom/umbrella shape) ──
+            const bellProfile = [
+                new THREE.Vector2(0.0,   2.0),    // apex
+                new THREE.Vector2(0.05,  1.98),
+                new THREE.Vector2(0.15,  1.90),
+                new THREE.Vector2(0.30,  1.70),
+                new THREE.Vector2(0.48,  1.40),
+                new THREE.Vector2(0.62,  1.05),
+                new THREE.Vector2(0.72,  0.70),
+                new THREE.Vector2(0.80,  0.35),
+                new THREE.Vector2(0.85,  0.10),
+                new THREE.Vector2(0.86,  0.0),    // rim edge
+                new THREE.Vector2(0.82, -0.06),
+                new THREE.Vector2(0.70, -0.12),
+                new THREE.Vector2(0.50, -0.15),
+                new THREE.Vector2(0.25, -0.14),
+                new THREE.Vector2(0.0,  -0.12),
+            ];
+            const segments = 32;
+            const bellGeo = new THREE.LatheGeometry(bellProfile, segments);
+            const bellHeight = 2.0;
+            const targetSize = 1.5 + Math.random() * 1.0;
+            bellGeo.scale(targetSize, targetSize, targetSize);
+
+            // ── Bell mesh (main body — procedural organic pattern + rim lighting) ──
+            const bellMat = new THREE.ShaderMaterial({
+                vertexShader: bellVertShader,
+                fragmentShader: bellFragShader,
+                uniforms: {
+                    diffuse: { value: new THREE.Color(palette.diffuse) },
+                    diffuseB: { value: new THREE.Color(palette.diffuseB) },
+                    opacity: { value: 0.85 },
+                    time: { value: 0.0 },
+                },
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+            });
+            const bellMesh = new THREE.Mesh(bellGeo, bellMat);
+            group.add(bellMesh);
+
+            // ── Gel mesh (rim glow overlay — same geometry, scaled slightly larger) ──
+            const gelMat = new THREE.ShaderMaterial({
+                vertexShader: gelVertShader,
+                fragmentShader: gelFragShader,
+                uniforms: {
+                    diffuse: { value: new THREE.Color(palette.gel) },
+                    opacity: { value: 0.2 },
+                },
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+            });
+            const gelMesh = new THREE.Mesh(bellGeo, gelMat); // Shared geometry — pulses together
+            gelMesh.scale.set(1.03, 1.03, 1.03);
+            group.add(gelMesh);
+
+            // Store original positions for bell pulsation animation
+            const posArray = bellGeo.attributes.position.array as Float32Array;
+            const bellOrigPositions = new Float32Array(posArray.length);
+            bellOrigPositions.set(posArray);
+
+            // ── Tentacle strands (Line geometry with distance-based glow) ──
+            const tentacles: TentacleStrand[] = [];
+            const strandCount = 8 + Math.floor(Math.random() * 4); // 8-11 strands
+            const pointsPerStrand = 24;
+
+            for (let s = 0; s < strandCount; s++) {
+                const angle = (s / strandCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+                const positions = new Float32Array(pointsPerStrand * 3);
+                const velocities = new Float32Array(pointsPerStrand * 3);
+                const rimRadius = targetSize * 0.83;
+
+                // Initialize hanging straight down from bell rim
+                for (let p = 0; p < pointsPerStrand; p++) {
+                    const x = Math.cos(angle) * rimRadius * (1 - p * 0.01);
+                    const z = Math.sin(angle) * rimRadius * (1 - p * 0.01);
+                    const y = -p * (targetSize * 0.18);
+                    positions[p * 3] = x;
+                    positions[p * 3 + 1] = y;
+                    positions[p * 3 + 2] = z;
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+                const tentacleMat = new THREE.ShaderMaterial({
+                    vertexShader: tentacleVertShader,
+                    fragmentShader: tentacleFragShader,
+                    uniforms: {
+                        diffuse: { value: new THREE.Color(palette.tentacle) },
+                        opacity: { value: 0.5 + Math.random() * 0.2 },
+                        area: { value: targetSize * 3.0 },
+                    },
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                });
+
+                const line = new THREE.Line(geo, tentacleMat);
+                group.add(line);
+
+                tentacles.push({
+                    points: line as unknown as THREE.Points,
+                    positions,
+                    velocities,
+                    attachAngle: angle,
+                    length: pointsPerStrand,
+                });
+            }
+
+            // ── Ambient dust particles (floating luminous motes) ──
+            const dustCount = 40;
+            const dustPositions = new Float32Array(dustCount * 3);
+            for (let d = 0; d < dustCount; d++) {
+                dustPositions[d * 3] = (Math.random() - 0.5) * targetSize * 6;
+                dustPositions[d * 3 + 1] = (Math.random() - 0.5) * targetSize * 8;
+                dustPositions[d * 3 + 2] = (Math.random() - 0.5) * targetSize * 4;
+            }
+            const dustGeo = new THREE.BufferGeometry();
+            dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+
+            const dustMat = new THREE.ShaderMaterial({
+                vertexShader: dustVertShader,
+                fragmentShader: dustFragShader,
+                uniforms: {
+                    color: { value: new THREE.Color(0xffffff) },
+                    opacity: { value: 0.3 },
+                    size: { value: 3.0 },
+                    scale: { value: 300.0 },
+                    time: { value: 0.0 },
+                    area: { value: targetSize * 6.0 },
+                },
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+            });
+            const dustPoints = new THREE.Points(dustGeo, dustMat);
+            group.add(dustPoints);
+
+            // ── Position jellyfish in scene ──
+            const startPos = new THREE.Vector3(
+                (Math.random() - 0.5) * 18,
+                (Math.random() - 0.5) * 12,
+                (Math.random() - 0.5) * 6 - 2
+            );
+            group.position.copy(startPos);
+            this.scene.add(group);
+
+            const jellyfish: Jellyfish = {
+                index: i,
+                group,
+                bellMesh,
+                bellOrigPositions,
+                bellHeight: targetSize * bellHeight,
+                tentacles,
+                bellMat,
+                gelMat,
+                dustMat,
+
+                position: startPos.clone(),
+                velocity: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.5,
+                    -0.3 + Math.random() * 0.6,
+                    (Math.random() - 0.5) * 0.3
+                ),
+                acceleration: new THREE.Vector3(),
+                targetPosition: startPos.clone(),
+                trackingTarget: targets[i % targets.length],
+
+                behavior: 'DRIFTING',
+                behaviorTimer: 3 + Math.random() * 4,
+                phase: Math.random() * Math.PI * 2,
+
+                boldness: 0.3 + Math.random() * 0.5,
+                curiosity: 0.4 + Math.random() * 0.6,
+                luminosity: 0.5 + Math.random() * 0.5,
+
+                maxSpeed: this.JELLY_MAX_SPEED * (0.7 + Math.random() * 0.6),
+                cruiseSpeed: this.JELLY_CRUISE_SPEED * (0.8 + Math.random() * 0.4),
+
+                pulsePhase: Math.random() * Math.PI * 2,
+                pulseRate: this.JELLY_PULSE_RATE * (0.9 + Math.random() * 0.2),
+                pulseAmplitude: this.JELLY_PULSE_AMPLITUDE,
+
+                smoothedYaw: 0,
+                smoothedPitch: 0,
+                smoothedRoll: 0,
+
+                startleIntensity: 0,
+                fleeDirection: new THREE.Vector3(),
+                glowIntensity: 0.15,
+                targetGlowIntensity: 0.15,
+
+                bellColor: palette.diffuse,
+                glowColor: palette.gel,
+
+                gatherPartner: null,
+            };
+
+            this.jellyfish.push(jellyfish);
+        }
+
+        console.log(`Created ${this.jellyfish.length} jellyfish`);
+    }
+
+    private updateAllJellyfish(delta: number) {
+        // Get hand positions in world space
+        const leftHandPos = this.tracking.leftHand
+            ? new THREE.Vector3(
+                (1 - this.tracking.leftHand.x) * this.width / this.height * 26 - 13 * this.width / this.height,
+                (1 - this.tracking.leftHand.y) * 26 - 13,
+                0
+            ) : null;
+        // Simplified: map 0-1 normalized to camera frustum
+        const rightHandPos = this.tracking.rightHand
+            ? new THREE.Vector3(
+                (1 - this.tracking.rightHand.x) * this.width / this.height * 26 - 13 * this.width / this.height,
+                (1 - this.tracking.rightHand.y) * 26 - 13,
+                0
+            ) : null;
+
+        // Hand velocity magnitudes for startle detection
+        const leftHandSpeed = this.handVelocityLeft.length() * 60;
+        const rightHandSpeed = this.handVelocityRight.length() * 60;
+        const isLeftHandFast = leftHandSpeed > this.JELLY_STARTLE_THRESHOLD;
+        const isRightHandFast = rightHandSpeed > this.JELLY_STARTLE_THRESHOLD;
+
+        // Creature-to-creature interactions
+        this.updateJellyfishInteractions(delta);
+
+        for (let i = 0; i < this.jellyfish.length; i++) {
+            const j = this.jellyfish[i];
+
+            // 1. Update behavior state
+            this.updateJellyfishBehavior(j, delta, leftHandPos, rightHandPos, isLeftHandFast, isRightHandFast);
+
+            // 2. Reset acceleration
+            j.acceleration.set(0, 0, 0);
+
+            // 3. Apply behavior forces
+            this.applyJellyfishBehaviorForce(j, leftHandPos, rightHandPos, delta);
+
+            // 4. Apply separation
+            this.applyJellyfishSeparation(j);
+
+            // 5. Apply boundary forces
+            this.applyJellyfishBoundaryForce(j);
+
+            // 6. Apply physics (velocity integration)
+            this.applyJellyfishPhysics(j, delta);
+
+            // 7. Update rotation
+            this.updateJellyfishRotation(j, delta);
+
+            // 8. Update bell pulsation
+            this.updateJellyfishBellPulse(j, delta);
+
+            // 9. Update tentacles
+            this.updateJellyfishTentacles(j, delta);
+
+            // 10. Update glow
+            this.updateJellyfishGlow(j, delta);
+
+            // 11. Sync group position
+            j.group.position.copy(j.position);
+            j.group.rotation.set(j.smoothedPitch * 0.3, j.smoothedYaw, j.smoothedRoll * 0.2);
+        }
+    }
+
+    private updateJellyfishBehavior(
+        j: Jellyfish,
+        delta: number,
+        leftHand: THREE.Vector3 | null,
+        rightHand: THREE.Vector3 | null,
+        isLeftFast: boolean,
+        isRightFast: boolean
+    ) {
+        j.behaviorTimer -= delta;
+
+        // Handle startle decay
+        if (j.startleIntensity > 0) {
+            j.startleIntensity -= delta / this.JELLY_STARTLE_DURATION;
+            if (j.startleIntensity <= 0) {
+                j.startleIntensity = 0;
+                j.behavior = 'DRIFTING';
+                j.behaviorTimer = 3.0 + Math.random() * 2;
+            }
+        }
+
+        // Get target hand
+        const targetHand = j.trackingTarget === 'leftHand' ? leftHand :
+                          j.trackingTarget === 'rightHand' ? rightHand : null;
+        const handIsFast = j.trackingTarget === 'leftHand' ? isLeftFast : isRightFast;
+
+        // Check for startle (fast hand nearby)
+        if (targetHand && handIsFast && j.behavior !== 'STARTLED') {
+            const distToHand = j.position.distanceTo(targetHand);
+            if (distToHand < this.JELLY_STARTLE_RADIUS) {
+                j.behavior = 'STARTLED';
+                j.startleIntensity = 1.0;
+                j.behaviorTimer = this.JELLY_STARTLE_DURATION;
+                j.targetGlowIntensity = 1.2 * j.luminosity;
+
+                // Flee away from hand with upward bias
+                j.fleeDirection.copy(j.position).sub(targetHand).normalize();
+                j.fleeDirection.y += 0.6;
+                j.fleeDirection.normalize();
+                j.startleIntensity *= (2 - j.boldness);
+
+                // Increase pulse rate during startle
+                j.pulseRate = 2.5;
+                return;
+            }
+        }
+
+        // Also check the other hand for startle
+        const otherHand = j.trackingTarget === 'leftHand' ? rightHand : leftHand;
+        const otherFast = j.trackingTarget === 'leftHand' ? isRightFast : isLeftFast;
+        if (otherHand && otherFast && j.behavior !== 'STARTLED') {
+            const distToOther = j.position.distanceTo(otherHand);
+            if (distToOther < this.JELLY_STARTLE_RADIUS * 0.7) {
+                j.behavior = 'STARTLED';
+                j.startleIntensity = 0.8;
+                j.behaviorTimer = this.JELLY_STARTLE_DURATION * 0.8;
+                j.targetGlowIntensity = 0.9 * j.luminosity;
+                j.fleeDirection.copy(j.position).sub(otherHand).normalize();
+                j.fleeDirection.y += 0.5;
+                j.fleeDirection.normalize();
+                j.pulseRate = 2.2;
+                return;
+            }
+        }
+
+        // Behavior state transitions (only when timer runs out and not startled/gathering)
+        if (j.behavior !== 'STARTLED' && j.behavior !== 'GATHERING' && j.behaviorTimer <= 0) {
+            const rand = Math.random();
+
+            // Restore normal pulse rate
+            j.pulseRate = this.JELLY_PULSE_RATE * (0.9 + Math.random() * 0.2);
+
+            if (targetHand) {
+                const distToHand = j.position.distanceTo(targetHand);
+                if (distToHand < 4 && j.boldness > 0.5) {
+                    // Very close to slow hand: DISPLAYING
+                    j.behavior = 'DISPLAYING';
+                    j.behaviorTimer = 4 + Math.random() * 3;
+                    j.pulseRate = 0.6;
+                    j.targetGlowIntensity = 0.3;
+                } else if (distToHand < this.JELLY_CURIOSITY_RADIUS) {
+                    if (rand < j.curiosity * j.boldness * 0.7) {
+                        j.behavior = 'CURIOUS';
+                        j.behaviorTimer = 2 + Math.random() * 3;
+                        j.pulseRate = 1.2;
+                        j.targetGlowIntensity = 0.3;
+                    } else if (rand < 0.7) {
+                        j.behavior = 'PULSING';
+                        j.behaviorTimer = 1.5 + Math.random() * 2;
+                        j.pulseRate = 1.5;
+                        j.targetGlowIntensity = 0.25;
+                    } else {
+                        j.behavior = 'DRIFTING';
+                        j.behaviorTimer = 3 + Math.random() * 3;
+                        j.targetGlowIntensity = 0.15;
+                    }
+                } else {
+                    // Hand far away
+                    if (rand < 0.6) {
+                        j.behavior = 'DRIFTING';
+                        j.behaviorTimer = 4 + Math.random() * 4;
+                        j.targetGlowIntensity = 0.15;
+                    } else {
+                        j.behavior = 'PULSING';
+                        j.behaviorTimer = 2 + Math.random() * 3;
+                        j.pulseRate = 1.5;
+                        j.targetGlowIntensity = 0.25;
+                    }
+                }
+            } else {
+                // No hand: ambient behaviors
+                if (rand < 0.6) {
+                    j.behavior = 'DRIFTING';
+                    j.behaviorTimer = 5 + Math.random() * 5;
+                    j.targetGlowIntensity = 0.15;
+                } else {
+                    j.behavior = 'PULSING';
+                    j.behaviorTimer = 3 + Math.random() * 3;
+                    j.pulseRate = 1.5;
+                    j.targetGlowIntensity = 0.25;
+                }
+            }
+        }
+    }
+
+    private applyJellyfishBehaviorForce(
+        j: Jellyfish,
+        leftHand: THREE.Vector3 | null,
+        rightHand: THREE.Vector3 | null,
+        _delta: number
+    ) {
+        const targetHand = j.trackingTarget === 'leftHand' ? leftHand :
+                          j.trackingTarget === 'rightHand' ? rightHand : null;
+
+        switch (j.behavior) {
+            case 'STARTLED': {
+                const fleeForce = this._tmpVec1.copy(j.fleeDirection).multiplyScalar(
+                    j.maxSpeed * 1.5 * j.startleIntensity
+                );
+                j.acceleration.add(fleeForce);
+                break;
+            }
+
+            case 'CURIOUS': {
+                if (targetHand) {
+                    const toHand = this._tmpVec1.copy(targetHand).sub(j.position);
+                    const dist = toHand.length();
+                    // Orbit offset — don't go directly to hand
+                    const orbitAngle = this.time * 0.3 + j.phase;
+                    const orbitRadius = 3 + j.boldness * 2;
+                    const orbitOffset = this._tmpVec2.set(
+                        Math.cos(orbitAngle) * orbitRadius,
+                        Math.sin(orbitAngle * 0.7) * orbitRadius * 0.5,
+                        Math.sin(orbitAngle) * orbitRadius * 0.3
+                    );
+                    const target = this._tmpVec3.copy(targetHand).add(orbitOffset);
+                    const toTarget = target.sub(j.position);
+                    const spring = dist > 5 ? 8 : 5;
+                    j.acceleration.add(toTarget.normalize().multiplyScalar(spring));
+                }
+                // Gentle upward drift
+                j.acceleration.y += 0.3;
+                break;
+            }
+
+            case 'DRIFTING': {
+                // Gentle upward bias (jellyfish drift up)
+                j.acceleration.y += 0.5;
+                // Sinusoidal horizontal wander
+                j.acceleration.x += Math.sin(this.time * 0.4 + j.phase) * 0.4;
+                j.acceleration.z += Math.cos(this.time * 0.3 + j.phase * 1.3) * 0.3;
+
+                // If there's a hand in view, gently bias toward it
+                if (targetHand) {
+                    const toHand = this._tmpVec1.copy(targetHand).sub(j.position);
+                    const dist = toHand.length();
+                    if (dist < this.JELLY_CURIOSITY_RADIUS * 1.5) {
+                        j.acceleration.add(toHand.normalize().multiplyScalar(0.8));
+                    }
+                }
+                break;
+            }
+
+            case 'PULSING': {
+                // Jellyfish propulsion: upward thrust synchronized with bell contraction
+                const pulsePower = Math.sin(j.pulsePhase * Math.PI * 2);
+                if (pulsePower > 0.5) {
+                    // Thrust upward during contraction
+                    j.acceleration.y += pulsePower * 3.0;
+                } else {
+                    // Drift down between pulses
+                    j.acceleration.y -= 0.4;
+                }
+                // Slight horizontal wander
+                j.acceleration.x += Math.sin(this.time * 0.3 + j.phase) * 0.2;
+                j.acceleration.z += Math.cos(this.time * 0.25 + j.phase) * 0.15;
+                break;
+            }
+
+            case 'DISPLAYING': {
+                // Nearly stationary: strong damping toward target near hand
+                if (targetHand) {
+                    // Hover near hand with offset
+                    const offset = this._tmpVec2.set(
+                        Math.sin(this.time * 0.2 + j.phase) * 2,
+                        Math.cos(this.time * 0.15 + j.phase) * 1.5 + 1,
+                        0
+                    );
+                    const target = this._tmpVec3.copy(targetHand).add(offset);
+                    j.acceleration.add(target.sub(j.position).multiplyScalar(3));
+                }
+                // Strong velocity damping
+                j.velocity.multiplyScalar(0.92);
+
+                // Rhythmic glow pulsing
+                j.targetGlowIntensity = 0.2 + Math.sin(this.time * 1.5 + j.phase) * 0.3;
+                break;
+            }
+
+            case 'GATHERING': {
+                if (j.gatherPartner) {
+                    // Orbit midpoint between self and partner
+                    const mid = this._tmpVec1.copy(j.position).add(j.gatherPartner.position).multiplyScalar(0.5);
+                    const orbitAngle = this.time * 0.5 + j.phase;
+                    const orbitR = 2.0;
+                    const orbitTarget = this._tmpVec2.set(
+                        mid.x + Math.cos(orbitAngle) * orbitR,
+                        mid.y + Math.sin(orbitAngle * 0.7) * orbitR * 0.5,
+                        mid.z + Math.sin(orbitAngle) * orbitR * 0.3
+                    );
+                    const toTarget = this._tmpVec3.copy(orbitTarget).sub(j.position);
+                    j.acceleration.add(toTarget.multiplyScalar(4));
+                } else {
+                    // Partner lost, revert to drifting
+                    j.behavior = 'DRIFTING';
+                    j.behaviorTimer = 2 + Math.random() * 3;
+                }
+                break;
+            }
+        }
+    }
+
+    private applyJellyfishSeparation(j: Jellyfish) {
+        for (let k = 0; k < this.jellyfish.length; k++) {
+            if (k === j.index) continue;
+            const other = this.jellyfish[k];
+            const diff = this._tmpVec1.copy(j.position).sub(other.position);
+            const dist = diff.length();
+            if (dist < this.JELLY_SEPARATION_RADIUS && dist > 0.001) {
+                const force = (this.JELLY_SEPARATION_RADIUS - dist) / this.JELLY_SEPARATION_RADIUS;
+                j.acceleration.add(diff.normalize().multiplyScalar(force * this.JELLY_SEPARATION_WEIGHT));
+            }
+        }
+    }
+
+    private applyJellyfishBoundaryForce(j: Jellyfish) {
+        const aspect = this.width / this.height;
+        const boundX = 13 * aspect;
+        const boundY = 13;
+        const margin = 3;
+        const strength = 5;
+
+        if (j.position.x < -boundX + margin) j.acceleration.x += strength * ((-boundX + margin) - j.position.x);
+        if (j.position.x > boundX - margin) j.acceleration.x -= strength * (j.position.x - (boundX - margin));
+        if (j.position.y < -boundY + margin) j.acceleration.y += strength * ((-boundY + margin) - j.position.y);
+        if (j.position.y > boundY - margin) j.acceleration.y -= strength * (j.position.y - (boundY - margin));
+        if (j.position.z < -8) j.acceleration.z += strength * 0.5;
+        if (j.position.z > 4) j.acceleration.z -= strength * 0.5;
+    }
+
+    private applyJellyfishPhysics(j: Jellyfish, dt: number) {
+        // Integrate acceleration
+        j.velocity.addScaledVector(j.acceleration, dt);
+
+        // Drag (jellyfish move through water, high drag)
+        j.velocity.multiplyScalar(this.JELLY_DRAG);
+
+        // Clamp speed
+        const speed = j.velocity.length();
+        const maxSpd = j.behavior === 'STARTLED' ? j.maxSpeed * 1.5 : j.maxSpeed;
+        if (speed > maxSpd) {
+            j.velocity.multiplyScalar(maxSpd / speed);
+        }
+
+        // Integrate position
+        j.position.addScaledVector(j.velocity, dt);
+    }
+
+    private updateJellyfishRotation(j: Jellyfish, dt: number) {
+        const speed = j.velocity.length();
+        if (speed > 0.1) {
+            // Yaw follows horizontal velocity direction
+            const targetYaw = Math.atan2(j.velocity.x, j.velocity.z);
+            j.smoothedYaw += (targetYaw - j.smoothedYaw) * dt * 1.5;
+
+            // Pitch tilts based on vertical velocity
+            const targetPitch = -j.velocity.y * 0.15;
+            j.smoothedPitch += (targetPitch - j.smoothedPitch) * dt * 2;
+        }
+
+        // Subtle roll wobble
+        const targetRoll = Math.sin(this.time * 0.5 + j.phase) * 0.1;
+        j.smoothedRoll += (targetRoll - j.smoothedRoll) * dt * 2;
+    }
+
+    private updateJellyfishBellPulse(j: Jellyfish, delta: number) {
+        j.pulsePhase += delta * j.pulseRate;
+
+        // Update time uniform for procedural pattern animation
+        j.bellMat.uniforms.time.value = this.time;
+
+        // Bell geometry is shared between bell mesh and gel mesh — both pulse together
+        const geo = j.bellMesh.geometry;
+        const positions = geo.attributes.position.array as Float32Array;
+        const orig = j.bellOrigPositions;
+        const pulseAmount = j.pulseAmplitude;
+        const pulseFactor = Math.sin(j.pulsePhase * Math.PI * 2);
+
+        for (let v = 0; v < positions.length; v += 3) {
+            const ox = orig[v];
+            const oy = orig[v + 1];
+            const oz = orig[v + 2];
+
+            const radial = Math.sqrt(ox * ox + oz * oz);
+
+            // rimFactor: 0 at apex (top), 1 at rim and below
+            const normalizedY = Math.max(0, oy / j.bellHeight);
+            const rimFactor = 1.0 - normalizedY;
+
+            // Radial pulse: stronger at rim
+            const pulse = pulseFactor * pulseAmount * rimFactor;
+
+            if (radial > 0.001) {
+                const scale = 1.0 + pulse;
+                positions[v]     = ox * scale;
+                positions[v + 2] = oz * scale;
+            }
+
+            // Vertical: slight compression/expansion synchronized with pulse
+            positions[v + 1] = oy + pulseFactor * 0.04 * (1.0 - normalizedY * 0.5);
+        }
+
+        geo.attributes.position.needsUpdate = true;
+        geo.computeVertexNormals();
+    }
+
+    private updateJellyfishTentacles(j: Jellyfish, delta: number) {
+        const gravity = -2.0;
+        const springStrength = 5.0;
+        const damping = 0.90;
+        // Bell height is 2.0*targetSize, rim at y=0, rimRadius = 0.83 * targetSize
+        const halfBellH = j.bellHeight * 0.5;
+        const rimRadius = halfBellH * 0.83;
+
+        for (const strand of j.tentacles) {
+            const pos = strand.positions;
+            const vel = strand.velocities;
+
+            // Point 0: attach to bell rim (animated with pulsation)
+            const pulseScale = 1.0 + Math.sin(j.pulsePhase * Math.PI * 2) * j.pulseAmplitude;
+            const attachR = rimRadius * pulseScale;
+            pos[0] = Math.cos(strand.attachAngle) * attachR;
+            pos[1] = 0; // Rim is at y=0 in bell local space
+            pos[2] = Math.sin(strand.attachAngle) * attachR;
+            vel[0] = vel[1] = vel[2] = 0;
+
+            // Natural spacing between points
+            const spacing = halfBellH * 0.15;
+
+            // Chain spring-damper
+            for (let p = 1; p < strand.length; p++) {
+                const pi = p * 3;
+                const ppi = (p - 1) * 3;
+
+                const dx = pos[ppi] - pos[pi];
+                const dy = pos[ppi + 1] - pos[pi] - spacing;
+                const dz = pos[ppi + 2] - pos[pi];
+
+                vel[pi]     += dx * springStrength * delta;
+                vel[pi + 1] += (dy * springStrength + gravity) * delta;
+                vel[pi + 2] += dz * springStrength * delta;
+
+                // Jellyfish movement drags tentacles
+                vel[pi]     += j.velocity.x * delta * 0.6;
+                vel[pi + 1] += j.velocity.y * delta * 0.4;
+                vel[pi + 2] += j.velocity.z * delta * 0.6;
+
+                // Subtle wave motion
+                const wave = Math.sin(this.time * 2.0 + p * 0.4 + j.phase + strand.attachAngle) * 0.15;
+                vel[pi]     += wave * delta;
+                vel[pi + 2] += wave * delta * 0.5;
+
+                vel[pi]     *= damping;
+                vel[pi + 1] *= damping;
+                vel[pi + 2] *= damping;
+
+                pos[pi]     += vel[pi] * delta;
+                pos[pi + 1] += vel[pi + 1] * delta;
+                pos[pi + 2] += vel[pi + 2] * delta;
+            }
+
+            strand.points.geometry.attributes.position.needsUpdate = true;
+        }
+    }
+
+    private updateJellyfishGlow(j: Jellyfish, delta: number) {
+        // Smooth glow transitions
+        j.glowIntensity += (j.targetGlowIntensity - j.glowIntensity) * delta * 3;
+
+        // During startle, glow decays after initial flash
+        if (j.behavior === 'STARTLED' && j.startleIntensity < 0.5) {
+            j.targetGlowIntensity = 0.15;
+        }
+
+        // Bell shader: modulate opacity (procedural pattern handles internal translucency)
+        j.bellMat.uniforms.opacity.value = 0.6 + j.glowIntensity * 0.4;
+
+        // Gel shader: rim glow intensifies with bioluminescence
+        j.gelMat.uniforms.opacity.value = 0.12 + j.glowIntensity * 0.5;
+
+        // Tentacle shader: glow modulates opacity
+        for (const strand of j.tentacles) {
+            const mat = strand.points.material as THREE.ShaderMaterial;
+            if (mat?.uniforms) {
+                mat.uniforms.opacity.value = 0.3 + j.glowIntensity * 0.5;
+            }
+        }
+
+        // Dust: subtle glow + time animation
+        j.dustMat.uniforms.opacity.value = 0.2 + j.glowIntensity * 0.2;
+        j.dustMat.uniforms.time.value = this.time;
+    }
+
+    private updateJellyfishInteractions(_delta: number) {
+        // GATHERING: check for nearby pairs
+        for (let i = 0; i < this.jellyfish.length; i++) {
+            const a = this.jellyfish[i];
+            if (a.behavior === 'STARTLED') continue;
+            if (a.gatherPartner) continue; // Already gathering
+
+            for (let k = i + 1; k < this.jellyfish.length; k++) {
+                const b = this.jellyfish[k];
+                if (b.behavior === 'STARTLED' || b.gatherPartner) continue;
+
+                const dist = a.position.distanceTo(b.position);
+                if (dist < 5.0 && Math.random() < 0.002) {
+                    // Initiate gathering
+                    a.behavior = 'GATHERING';
+                    a.behaviorTimer = 4 + Math.random() * 3;
+                    a.gatherPartner = b;
+                    a.targetGlowIntensity = 0.25;
+
+                    b.behavior = 'GATHERING';
+                    b.behaviorTimer = 4 + Math.random() * 3;
+                    b.gatherPartner = a;
+                    b.targetGlowIntensity = 0.25;
+                    break;
+                }
+            }
+        }
+
+        // Clear expired gather partnerships
+        for (const j of this.jellyfish) {
+            if (j.behavior === 'GATHERING' && j.behaviorTimer <= 0) {
+                if (j.gatherPartner) {
+                    j.gatherPartner.gatherPartner = null;
+                    if (j.gatherPartner.behavior === 'GATHERING') {
+                        j.gatherPartner.behavior = 'DRIFTING';
+                        j.gatherPartner.behaviorTimer = 3 + Math.random() * 3;
+                    }
+                }
+                j.gatherPartner = null;
+                j.behavior = 'DRIFTING';
+                j.behaviorTimer = 3 + Math.random() * 3;
             }
         }
     }

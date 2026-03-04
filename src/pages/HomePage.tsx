@@ -10,12 +10,26 @@ import { ButterflySVG } from '../components/illustrations/ButterflySVG';
 
 const creatures = [
     {
+        id: 'BEES',
+        name: 'Honeybee',
+        icon: BeeSVG,
+        color: 'text-ink/80',
+        stats: ['40-bee swarm', '230 Hz wing beat', 'Waggle dance communication'],
+        description: 'When a bee discovers something interesting, it performs a waggle dance to recruit the swarm. Other bees see the dance and fly over to investigate.',
+        fieldNotes: [
+            'Hold your hand near the swarm. A scout will discover it and dance',
+            'Other bees follow the dancer to your hand in a cascade',
+            'They scatter when startled but recover faster than any other creature',
+            'The waggle dance is one of the most sophisticated communication systems in nature',
+        ],
+    },
+    {
         id: 'BIRDS',
         name: 'Hummingbird',
         icon: HummingbirdSVG,
         color: 'text-ink/80',
-        stats: ['40–80 wing beats/sec', 'Can fly backwards', '9 behavioral states'],
-        description: 'Hummingbirds hover using a unique figure-8 wing pattern. They can fly backwards, sideways, and hover with incredible precision. The only birds that can.',
+        stats: ['40–80 wing beats/sec', 'Dart & hover precision', '9 behavioral states'],
+        description: 'Hummingbirds hover in place with rapid wing beats, darting sideways and repositioning with incredible precision. They\'re curious, bold, and fiercely territorial.',
         fieldNotes: [
             'Hold your hand still. A curious one will hover right beside it',
             'Wave quickly to watch them dart away like tiny rockets',
@@ -38,25 +52,11 @@ const creatures = [
         ],
     },
     {
-        id: 'BEES',
-        name: 'Honeybee',
-        icon: BeeSVG,
-        color: 'text-ink/80',
-        stats: ['40-bee swarm', '230 Hz wing beat', 'Waggle dance communication'],
-        description: 'When a bee discovers something interesting, it performs a waggle dance, a figure-8 recruitment pattern. Other bees see the dance and fly over to investigate.',
-        fieldNotes: [
-            'Hold your hand near the swarm. A scout will discover it and dance',
-            'Other bees follow the dancer to your hand in a cascade',
-            'They scatter when startled but recover faster than any other creature',
-            'The waggle dance is one of the most sophisticated communication systems in nature',
-        ],
-    },
-    {
         id: 'BUTTERFLIES',
         name: 'Ulysses Butterfly',
         icon: ButterflySVG,
         color: 'text-ink/80',
-        stats: ['8–12 Hz wing beat', 'Flap-glide cycle', 'Extremely startle-sensitive'],
+        stats: ['8–12 Hz wing beat', 'Flap-pause rhythm', 'Extremely startle-sensitive'],
         description: 'Butterflies alternate between rapid wing flaps and graceful glides. They\'re the most sensitive creatures here. Even a slow hand gesture can cause them to scatter like leaves.',
         fieldNotes: [
             'Stay perfectly still. A butterfly might perch on your hand',

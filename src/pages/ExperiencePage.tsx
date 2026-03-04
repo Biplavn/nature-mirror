@@ -13,7 +13,7 @@ const ExperiencePage: React.FC = () => {
     const [showLoader, setShowLoader] = useState(true);
     const [sceneReady, setSceneReady] = useState(false);
     const [mobile] = useState(isMobile);
-    const initialMode = (searchParams.get('mode') as CreatureMode) || 'BIRDS';
+    const initialMode = (searchParams.get('mode') as CreatureMode) || 'BEES';
 
     // Toggle body class for full-viewport dark mode + exit fullscreen on cleanup
     useEffect(() => {
