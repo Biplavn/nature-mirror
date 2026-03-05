@@ -2,6 +2,9 @@ export interface VisionConfig {
   width: number;
   height: number;
   fps: number;
+  modelComplexity?: 0 | 1;
+  cameraWidth?: number;
+  cameraHeight?: number;
 }
 
 export interface Point2D {

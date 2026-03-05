@@ -39,11 +39,22 @@ export class VisionManager {
     private leftHandVisible = false;
     private rightHandVisible = false;
 
-    constructor(_config?: VisionConfig) {
+    // Quality config
+    private mediaComplexity: 0 | 1 = 1;
+    private cameraWidth = 1280;
+    private cameraHeight = 720;
+
+    constructor(config?: VisionConfig) {
         this.video = document.createElement('video');
         this.video.autoplay = true;
         this.video.playsInline = true;
         this.video.muted = true;
+
+        if (config) {
+            this.mediaComplexity = config.modelComplexity ?? 1;
+            this.cameraWidth = config.cameraWidth ?? 1280;
+            this.cameraHeight = config.cameraHeight ?? 720;
+        }
     }
 
     public async start() {
@@ -58,18 +69,18 @@ export class VisionManager {
 
         this.hands.setOptions({
             maxNumHands: 2,
-            modelComplexity: 1, // 0=lite, 1=full
+            modelComplexity: this.mediaComplexity,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
 
         this.hands.onResults((results) => this.onHandsResults(results));
 
-        // Get camera
+        // Get camera (resolution from quality settings)
         const stream = await navigator.mediaDevices.getUserMedia({
             video: {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
+                width: { ideal: this.cameraWidth },
+                height: { ideal: this.cameraHeight },
                 frameRate: { ideal: 30 },
                 facingMode: 'user'
             }
@@ -297,7 +308,7 @@ export class VisionManager {
     }
 
     private drawDebug(results: Results, _leftHand: HandPosition | null, _rightHand: HandPosition | null) {
-        if (!this.debugCtx || !this.debugCanvas) return;
+        if (!this.debugCtx || !this.debugCanvas || !this.cameraVisible) return;
 
         const ctx = this.debugCtx;
         const w = this.debugCanvas.width;

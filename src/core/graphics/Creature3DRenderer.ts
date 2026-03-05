@@ -27,12 +27,14 @@
 
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import type { QualitySettings } from './QualityManager';
 
-export type CreatureMode = 'BIRDS' | 'FISH' | 'BEES' | 'BUTTERFLIES' | 'JELLYFISH';
+export type CreatureMode = 'BIRDS' | 'FISH' | 'BEES' | 'BUTTERFLIES';
 
 export interface TrackingData {
     leftHand: { x: number; y: number; confidence: number } | null;
@@ -46,7 +48,7 @@ export interface TrackingData {
 // HUMMINGBIRD TYPES
 // ========================================
 
-type HummingbirdBehavior = 'HOVERING' | 'FEEDING' | 'CURIOUS' | 'TERRITORIAL' | 'STARTLED' | 'DARTING' | 'RETURNING' | 'DIVE_DISPLAY' | 'CHASING';
+type HummingbirdBehavior = 'HOVERING' | 'FEEDING' | 'CURIOUS' | 'STARTLED' | 'RETURNING';
 
 interface Hummingbird {
     index: number;
@@ -287,86 +289,16 @@ interface Butterfly {
     spiralPhase: number;
 }
 
-// ========================================
-// JELLYFISH TYPES
-// ========================================
-
-type JellyfishBehavior = 'DRIFTING' | 'PULSING' | 'CURIOUS' | 'STARTLED' | 'GATHERING' | 'DISPLAYING';
-
-interface TentacleStrand {
-    points: THREE.Points;
-    positions: Float32Array;
-    velocities: Float32Array;
-    attachAngle: number;
-    length: number;
-}
-
-interface Jellyfish {
-    index: number;
-    group: THREE.Group;
-    bellMesh: THREE.Mesh;
-    bellOrigPositions: Float32Array;
-    bellHeight: number;
-    tentacles: TentacleStrand[];
-
-    position: THREE.Vector3;
-    velocity: THREE.Vector3;
-    acceleration: THREE.Vector3;
-    targetPosition: THREE.Vector3;
-    trackingTarget: 'leftHand' | 'rightHand' | 'drift';
-
-    behavior: JellyfishBehavior;
-    behaviorTimer: number;
-    phase: number;
-
-    // Personality
-    boldness: number;
-    curiosity: number;
-    luminosity: number;
-
-    // Physics
-    maxSpeed: number;
-    cruiseSpeed: number;
-
-    // Bell animation
-    pulsePhase: number;
-    pulseRate: number;
-    pulseAmplitude: number;
-
-    // Rotation
-    smoothedYaw: number;
-    smoothedPitch: number;
-    smoothedRoll: number;
-
-    // Startle / bioluminescence
-    startleIntensity: number;
-    fleeDirection: THREE.Vector3;
-    glowIntensity: number;
-    targetGlowIntensity: number;
-
-    // Shader materials (for uniform updates)
-    bellMat: THREE.ShaderMaterial;
-    gelMat: THREE.ShaderMaterial;
-    dustMat: THREE.ShaderMaterial;
-
-    // Color
-    bellColor: number;
-    glowColor: number;
-
-    // Creature-to-creature
-    gatherPartner: Jellyfish | null;
-}
-
 export class Creature3DRenderer {
     private scene: THREE.Scene;
     private camera: THREE.PerspectiveCamera;
     private renderer: THREE.WebGLRenderer;
     private composer: EffectComposer;
+    private useComposer: boolean;
     private hummingbirds: Hummingbird[] = [];
     private fish: Fish[] = [];
     private bees: Bee[] = [];
     private butterflies: Butterfly[] = [];
-    private jellyfish: Jellyfish[] = [];
     private sharedBeeMaterials: Map<string, THREE.Material> = new Map();
     private sharedBeeGeometries: Map<string, THREE.BufferGeometry> = new Map();
     private birdModel: GLTF | null = null;
@@ -379,9 +311,10 @@ export class Creature3DRenderer {
     private height: number;
     private currentMode: CreatureMode = 'BEES';
     private creatureCount: number;
+    private qualitySettings: QualitySettings | null = null;
 
-    // Bee count
-    private readonly BEE_COUNT = 40;
+    // Creature counts (scaled by quality)
+    private BEE_COUNT = 40;
     private frameCounter = 0;  // For alternating collision frames
 
     // Tracking
@@ -417,6 +350,11 @@ export class Creature3DRenderer {
     private readonly _tmpVec1 = new THREE.Vector3();
     private readonly _tmpVec2 = new THREE.Vector3();
     private readonly _tmpVec3 = new THREE.Vector3();
+    private readonly _tmpVec4 = new THREE.Vector3();
+    private readonly _tmpVec5 = new THREE.Vector3();
+    private readonly _tmpVec6 = new THREE.Vector3();
+    private readonly _tmpVec7 = new THREE.Vector3();
+    private readonly _tmpVec8 = new THREE.Vector3();
 
     // ========================================
     // HUMMINGBIRD PHYSICS CONSTANTS
@@ -429,22 +367,28 @@ export class Creature3DRenderer {
     private readonly HOVER_DRIFT_FREQUENCY = 0.8;   // Very slow drift (subtle)
     private readonly HOVER_VERTICAL_BOB = 0.02;     // Minimal vertical bob (1-2° = ~0.02 rad)
 
-    // Flight speeds — fast and precise ("dart like tiny rockets")
+    // Flight speeds — smooth, bee-like swarming with cautious approach
     private readonly BIRD_HOVER_SPEED = 3.0;        // Responsive hovering
-    private readonly BIRD_CRUISE_SPEED = 9;         // Swift cruising
-    private readonly BIRD_DART_SPEED = 22;          // Rocket-like darting
-    private readonly BIRD_MAX_SPEED = 35;           // High maximum
+    private readonly BIRD_CRUISE_SPEED = 8;         // Moderate cruising
+    private readonly BIRD_DART_SPEED = 14;          // Moderate darting
+    private readonly BIRD_MAX_SPEED = 18;           // Capped for smooth movement
 
-    // Acceleration — snappy for precise repositioning
-    private readonly BIRD_ACCELERATION = 40;        // Quick acceleration
-    private readonly BIRD_TURN_RATE = 6;            // Agile turns
+    // Acceleration — smooth and gentle
+    private readonly BIRD_ACCELERATION = 18;        // Gentle acceleration
+    private readonly BIRD_TURN_RATE = 5;            // Smooth turns
 
-    // Behavioral triggers — curious and alert
+    // Behavioral triggers — cautious and alert (fish-like sensitivity)
     private readonly BIRD_CURIOSITY_RADIUS = 28;    // Notice hands from far away
-    private readonly BIRD_STARTLE_THRESHOLD = 6;    // Sensitive to hand velocity
-    private readonly BIRD_STARTLE_RADIUS = 8;       // Distance for startle
-    private readonly BIRD_STARTLE_DURATION = 0.8;   // Quick recovery
-    private readonly BIRD_TERRITORIAL_RADIUS = 5;   // Distance to trigger chase
+    private readonly BIRD_STARTLE_THRESHOLD = 4;    // Very sensitive to hand velocity
+    private readonly BIRD_STARTLE_RADIUS = 12;      // Large startle zone (like fish)
+    private readonly BIRD_STARTLE_DURATION = 1.3;   // Longer recovery (cautious)
+
+    // Swarm behavior (boids-like, similar to bees)
+    private readonly BIRD_SWARM_RADIUS = 10;        // Cohesion radius
+    private readonly BIRD_SEPARATION_RADIUS = 2.0;  // Minimum distance between birds
+    private readonly BIRD_ALIGNMENT_WEIGHT = 1.8;   // Match flock velocity
+    private readonly BIRD_COHESION_WEIGHT = 1.2;    // Stay with the flock
+    private readonly BIRD_SEPARATION_WEIGHT = 2.5;  // Avoid crowding
 
     // ========================================
     // FISH PHYSICS CONSTANTS
@@ -504,7 +448,7 @@ export class Creature3DRenderer {
     // BUTTERFLY PHYSICS CONSTANTS
     // ========================================
 
-    private readonly BUTTERFLY_COUNT = 15;
+    private BUTTERFLY_COUNT = 15;
 
     // Wing mechanics - butterflies have rapid wing beats
     private readonly BUTTERFLY_WING_FREQUENCY = 10;    // ~10 Hz wing beat (real: 8-12 Hz)
@@ -534,35 +478,16 @@ export class Creature3DRenderer {
     private readonly BUTTERFLY_SEPARATION_RADIUS = 4.0;
     private readonly BUTTERFLY_SEPARATION_WEIGHT = 2.5;
 
-    // ========================================
-    // JELLYFISH PHYSICS CONSTANTS
-    // ========================================
-
-    private readonly JELLY_COUNT = 10;
-    private readonly JELLY_CRUISE_SPEED = 2.0;
-    private readonly JELLY_MAX_SPEED = 5.0;
-    private readonly JELLY_PULSE_RATE = 0.8;
-    private readonly JELLY_PULSE_AMPLITUDE = 0.15;
-    private readonly JELLY_CURIOSITY_RADIUS = 12;
-    private readonly JELLY_STARTLE_THRESHOLD = 6;
-    private readonly JELLY_STARTLE_RADIUS = 10;
-    private readonly JELLY_STARTLE_DURATION = 1.2;
-    private readonly JELLY_SEPARATION_RADIUS = 4.0;
-    private readonly JELLY_SEPARATION_WEIGHT = 2.0;
-    private readonly JELLY_DRAG = 0.95;
-
-    private readonly JELLY_PALETTES = [
-        { diffuse: 0xFFA9D2, diffuseB: 0x70256C, gel: 0x415AB5, tentacle: 0x997299 }, // Pink/Purple (ethereal medusa)
-        { diffuse: 0xA9D4FF, diffuseB: 0x1B2D6C, gel: 0x8241B5, tentacle: 0x7282AA }, // Ice blue / deep navy
-        { diffuse: 0xBBEECC, diffuseB: 0x1A5535, gel: 0x41B5A0, tentacle: 0x72AA89 }, // Mint / deep forest
-        { diffuse: 0xFFCBA9, diffuseB: 0x6C2D25, gel: 0x4185B5, tentacle: 0xAA8572 }, // Peach / deep rust
-        { diffuse: 0xCCA9FF, diffuseB: 0x2D1A6C, gel: 0xB54170, tentacle: 0x8272AA }, // Lavender / deep indigo
-    ];
-
-    constructor(container: HTMLElement, count: number = 5) {
+    constructor(container: HTMLElement, count: number = 5, quality?: QualitySettings) {
         this.width = window.innerWidth;
         this.height = window.innerHeight;
-        this.creatureCount = count;
+        this.qualitySettings = quality || null;
+
+        // Scale creature counts by quality multiplier
+        const multiplier = quality?.creatureMultiplier ?? 1.0;
+        this.creatureCount = Math.max(2, Math.round(count * multiplier));
+        this.BEE_COUNT = Math.max(5, Math.round(40 * multiplier));
+        this.BUTTERFLY_COUNT = Math.max(3, Math.round(15 * multiplier));
 
         // Scene
         this.scene = new THREE.Scene();
@@ -574,33 +499,49 @@ export class Creature3DRenderer {
 
         // Renderer
         this.renderer = new THREE.WebGLRenderer({
-            antialias: false,  // Disable for better performance
+            antialias: false,
             alpha: true,
             powerPreference: 'high-performance',
-            precision: 'mediump'  // Use medium precision for better performance
+            precision: 'mediump'
         });
         this.renderer.setSize(this.width, this.height);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));  // Limit for performance
+        this.renderer.setPixelRatio(quality?.pixelRatio ?? Math.min(window.devicePixelRatio, 1.5));
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.2;
         container.appendChild(this.renderer.domElement);
 
-        // Post-processing with reduced resolution for performance
+        // Post-processing -- conditionally add bloom based on quality
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-        const bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(this.width * 0.25, this.height * 0.25),  // Quarter resolution bloom for performance
-            0.6, 0.4, 0.85  // Stronger glow, tighter radius, high threshold (selective bloom)
-        );
-        this.composer.addPass(bloomPass);
+        this.useComposer = quality?.bloomEnabled ?? true;
+        if (this.useComposer) {
+            const bloomScale = quality?.bloomResolutionScale ?? 0.25;
+            const bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(this.width * bloomScale, this.height * bloomScale),
+                0.6, 0.4, 0.85
+            );
+            this.composer.addPass(bloomPass);
+        }
 
         // Lighting
         this.setupLights();
         this.createHandIndicators();
 
-        // Load models
+        // GLTFLoader with meshopt decoder
+        this.loader = new GLTFLoader();
+        this.loader.setMeshoptDecoder(MeshoptDecoder);
+
+        // Load models (lazy -- only active mode)
         this.loadModels();
+    }
+
+    private renderFrame() {
+        if (this.useComposer) {
+            this.composer.render();
+        } else {
+            this.renderer.render(this.scene, this.camera);
+        }
     }
 
     private setupLights() {
@@ -634,69 +575,67 @@ export class Creature3DRenderer {
         document.body.appendChild(this.handIndicators.right);
     }
 
+    // Pending model load promise (for lazy loading during transitions)
+    private pendingModelLoad: Promise<void> | null = null;
+    private loader: GLTFLoader;
+
     private async loadModels() {
-        const loader = new GLTFLoader();
-
-        try {
-            this.birdModel = await loader.loadAsync('/models/hummingbird.glb');
-            console.log('Bird model loaded!', this.birdModel.animations.length, 'animations');
-
-            // Log all animation clip names and durations
-            this.birdModel.animations.forEach((clip, i) => {
-                console.log(`  Animation ${i}: "${clip.name}" duration=${clip.duration.toFixed(3)}s tracks=${clip.tracks.length}`);
-            });
-
-            // Log model dimensions to help with scaling
-            const box = new THREE.Box3().setFromObject(this.birdModel.scene);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-            console.log('Bird model dimensions:', size.x.toFixed(2), 'x', size.y.toFixed(2), 'x', size.z.toFixed(2));
-            console.log('Bird model center:', center.x.toFixed(2), center.y.toFixed(2), center.z.toFixed(2));
-
-            // Log bone structure
-            console.log('Bird model bone/mesh structure:');
-            this.birdModel.scene.traverse((child: THREE.Object3D) => {
-                if (child.type === 'Bone' || child.type === 'SkinnedMesh') {
-                    console.log(`  ${child.type}: "${child.name}"`);
-                }
-            });
-        } catch (e) {
-            console.error('Failed to load bird model:', e);
-            this.birdModel = null;  // Ensure fallback is used
-        }
-
-        try {
-            this.fishModel = await loader.loadAsync('/models/fish.glb');
-            console.log('Fish model loaded!', this.fishModel.animations.length, 'animations');
-        } catch (e) {
-            console.error('Failed to load fish model:', e);
-        }
-
-        try {
-            this.beeModel = await loader.loadAsync('/models/bee.glb');
-            console.log('Bee model loaded!', this.beeModel.animations.length, 'animations');
-        } catch (e) {
-            console.error('Failed to load bee model:', e);
-        }
-
-        try {
-            this.butterflyModel = await loader.loadAsync('/models/Butterfly/ulysses_butterfly.glb');
-            console.log('Butterfly model loaded!', this.butterflyModel.animations.length, 'animations');
-
-            const box = new THREE.Box3().setFromObject(this.butterflyModel.scene);
-            const size = box.getSize(new THREE.Vector3());
-            console.log('Butterfly model dimensions:', size.x.toFixed(2), 'x', size.y.toFixed(2), 'x', size.z.toFixed(2));
-
-            this.butterflyModel.scene.traverse((child: THREE.Object3D) => {
-                if (child.type === 'Bone' || child.type === 'SkinnedMesh') {
-                    console.log(`  Butterfly ${child.type}: "${child.name}"`);
-                }
-            });
-        } catch (e) {
-            console.error('Failed to load butterfly model:', e);
-        }
-
+        // Only load the active mode's model at startup
+        await this.loadModelForMode(this.currentMode);
         this.createCreatures();
+
+        // Preload adjacent mode in background after initial render
+        requestIdleCallback(() => {
+            const modes: CreatureMode[] = ['BEES', 'BIRDS', 'FISH', 'BUTTERFLIES'];
+            const currentIdx = modes.indexOf(this.currentMode);
+            const nextMode = modes[(currentIdx + 1) % modes.length];
+            this.loadModelForMode(nextMode);
+        });
+    }
+
+    private async loadModelForMode(mode: CreatureMode): Promise<void> {
+        switch (mode) {
+            case 'BIRDS':
+                if (this.birdModel) return;
+                try {
+                    this.birdModel = await this.loader.loadAsync('/models/hummingbird.glb');
+                    console.log('Bird model loaded!', this.birdModel.animations.length, 'animations');
+                } catch (e) {
+                    console.error('Failed to load bird model:', e);
+                    this.birdModel = null;
+                }
+                break;
+
+            case 'FISH':
+                if (this.fishModel) return;
+                try {
+                    this.fishModel = await this.loader.loadAsync('/models/fish.glb');
+                    console.log('Fish model loaded!', this.fishModel.animations.length, 'animations');
+                } catch (e) {
+                    console.error('Failed to load fish model:', e);
+                }
+                break;
+
+            case 'BEES':
+                if (this.beeModel) return;
+                try {
+                    this.beeModel = await this.loader.loadAsync('/models/bee.glb');
+                    console.log('Bee model loaded!', this.beeModel.animations.length, 'animations');
+                } catch (e) {
+                    console.error('Failed to load bee model:', e);
+                }
+                break;
+
+            case 'BUTTERFLIES':
+                if (this.butterflyModel) return;
+                try {
+                    this.butterflyModel = await this.loader.loadAsync('/models/Butterfly/ulysses_butterfly.glb');
+                    console.log('Butterfly model loaded!', this.butterflyModel.animations.length, 'animations');
+                } catch (e) {
+                    console.error('Failed to load butterfly model:', e);
+                }
+                break;
+        }
     }
 
     private disposeGroup(group: THREE.Group) {
@@ -754,22 +693,6 @@ export class Creature3DRenderer {
             this.disposeGroup(b.group);
         });
         this.butterflies = [];
-
-        this.jellyfish.forEach(j => {
-            // Dispose all children (fill, wire, rim, glow, tentacles, dust)
-            j.group.traverse((child) => {
-                if (child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.Points) {
-                    child.geometry?.dispose();
-                    if (Array.isArray(child.material)) {
-                        child.material.forEach(m => m.dispose());
-                    } else if (child.material) {
-                        child.material.dispose();
-                    }
-                }
-            });
-            this.scene.remove(j.group);
-        });
-        this.jellyfish = [];
     }
 
     private createCreatures() {
@@ -783,8 +706,6 @@ export class Creature3DRenderer {
             this.createBees();
         } else if (this.currentMode === 'BUTTERFLIES') {
             this.createButterflies();
-        } else if (this.currentMode === 'JELLYFISH') {
-            this.createJellyfish();
         }
     }
 
@@ -802,15 +723,19 @@ export class Creature3DRenderer {
         console.log('Creating hummingbirds from loaded model');
         const targets: Hummingbird['trackingTarget'][] = ['leftHand', 'leftHand', 'rightHand', 'rightHand', 'body'];
 
+        // Compute bounding box from original model (clones may have degenerate bounds with meshopt)
+        const origBox = new THREE.Box3().setFromObject(this.birdModel.scene);
+        const origSize = origBox.getSize(new THREE.Vector3());
+        const origMaxDim = Math.max(origSize.x, origSize.y, origSize.z);
+        console.log(`Bird original model max dim=${origMaxDim.toFixed(4)}`);
+
         for (let i = 0; i < this.creatureCount; i++) {
             const cloned = SkeletonUtils.clone(this.birdModel.scene);
             const group = new THREE.Group();
             group.add(cloned);
 
-            // Auto-scale based on model bounding box
-            const box = new THREE.Box3().setFromObject(cloned);
-            const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
+            // Auto-scale based on original model bounding box
+            const maxDim = origMaxDim;
             // Target size: 2.5-3.5 units for visible, prominent hummingbirds
             const targetSize = 2.5 + Math.random() * 1.0;
             const scale = targetSize / maxDim;
@@ -1113,8 +1038,8 @@ export class Creature3DRenderer {
     private createProceduralFish() {
         const targets: Fish['trackingTarget'][] = ['leftHand', 'leftHand', 'rightHand', 'rightHand', 'body'];
 
-        // More fish for richer schooling behavior
-        const fishCount = 20;
+        // Fish count scaled by quality
+        const fishCount = Math.max(3, Math.round(20 * (this.qualitySettings?.creatureMultiplier ?? 1.0)));
 
         for (let i = 0; i < fishCount; i++) {
             // Main group - anchor point is at the HEAD (front of fish)
@@ -1549,15 +1474,19 @@ export class Creature3DRenderer {
         const count = this.BUTTERFLY_COUNT;
         const targets: Butterfly['trackingTarget'][] = ['leftHand', 'rightHand', 'wander'];
 
+        // Compute bounding box from original model (clones may have degenerate bounds with meshopt)
+        const origBox = new THREE.Box3().setFromObject(this.butterflyModel.scene);
+        const origSize = origBox.getSize(new THREE.Vector3());
+        const origMaxDim = Math.max(origSize.x, origSize.y, origSize.z);
+        console.log(`Butterfly original model max dim=${origMaxDim.toFixed(4)}`);
+
         for (let i = 0; i < count; i++) {
             const cloned = SkeletonUtils.clone(this.butterflyModel.scene);
             const group = new THREE.Group();
             group.add(cloned);
 
-            // Auto-scale based on model bounding box
-            const box = new THREE.Box3().setFromObject(cloned);
-            const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
+            // Auto-scale based on original model bounding box
+            const maxDim = origMaxDim;
             // Target size: 2.0-3.5 units for visible butterflies
             const targetSize = 2.0 + Math.random() * 1.5;
             const scale = targetSize / maxDim;
@@ -1690,7 +1619,8 @@ export class Creature3DRenderer {
             if (this.prevLeftHand) {
                 this.handVelocityLeft.copy(newPos).sub(this.prevLeftHand);
             }
-            this.prevLeftHand = newPos.clone();
+            if (!this.prevLeftHand) this.prevLeftHand = new THREE.Vector3();
+            this.prevLeftHand.copy(newPos);
         } else {
             this.prevLeftHand = null;
             this.handVelocityLeft.set(0, 0, 0);
@@ -1701,7 +1631,8 @@ export class Creature3DRenderer {
             if (this.prevRightHand) {
                 this.handVelocityRight.copy(newPos).sub(this.prevRightHand);
             }
-            this.prevRightHand = newPos.clone();
+            if (!this.prevRightHand) this.prevRightHand = new THREE.Vector3();
+            this.prevRightHand.copy(newPos);
         } else {
             this.prevRightHand = null;
             this.handVelocityRight.set(0, 0, 0);
@@ -1797,15 +1728,18 @@ export class Creature3DRenderer {
             } else {
                 // During exit: only apply physics so creatures fly out, skip behaviors
                 this.updateTransitionPhysics(delta);
-                this.composer.render();
+                this.renderFrame();
                 return;
             }
         }
 
         if (this.transitionState === 'waiting') {
             this.transitionTimer += delta;
-            if (this.transitionTimer >= this.TRANSITION_GAP_DURATION) {
-                // Gap complete - create new creatures at edges and start entering
+            // Wait for both the gap duration AND the model to finish loading
+            const gapDone = this.transitionTimer >= this.TRANSITION_GAP_DURATION;
+            const modelReady = !this.pendingModelLoad;
+            if (gapDone && modelReady) {
+                // Gap complete and model loaded - create new creatures at edges
                 this.currentMode = this.pendingMode!;
                 this.pendingMode = null;
                 this.createCreatures();
@@ -1813,8 +1747,8 @@ export class Creature3DRenderer {
                 this.transitionState = 'entering';
                 this.transitionTimer = 0;
             } else {
-                // During gap: render empty scene
-                this.composer.render();
+                // Still waiting (gap or model loading) - render empty scene
+                this.renderFrame();
                 return;
             }
         }
@@ -1837,13 +1771,11 @@ export class Creature3DRenderer {
             this.updateAllBees(delta);
         } else if (this.currentMode === 'BUTTERFLIES') {
             this.updateAllButterflies(delta);
-        } else if (this.currentMode === 'JELLYFISH') {
-            this.updateAllJellyfish(delta);
         } else {
             this.updateAllHummingbirds(delta);
         }
 
-        this.composer.render();
+        this.renderFrame();
     }
 
     /**
@@ -1928,8 +1860,6 @@ export class Creature3DRenderer {
             placeAndLaunch(this.bees, 6);
         } else if (this.currentMode === 'BUTTERFLIES') {
             placeAndLaunch(this.butterflies, 2);
-        } else if (this.currentMode === 'JELLYFISH') {
-            placeAndLaunch(this.jellyfish, 2);
         }
     }
 
@@ -1966,13 +1896,6 @@ export class Creature3DRenderer {
                     b.behaviorTimer = 2 + Math.random() * 3;
                 }
             }
-        } else if (this.currentMode === 'JELLYFISH') {
-            for (const j of this.jellyfish) {
-                if (j.behavior !== 'STARTLED') {
-                    j.behavior = 'CURIOUS';
-                    j.behaviorTimer = 2 + Math.random() * 3;
-                }
-            }
         }
     }
 
@@ -1990,11 +1913,6 @@ export class Creature3DRenderer {
         for (const bird of this.hummingbirds) bird.mixer?.update(delta);
         for (const bee of this.bees) { bee.mixer?.update(delta); }
         for (const b of this.butterflies) { b.mixer?.update(delta); }
-        // Update jellyfish tentacles during exit so they trail naturally
-        for (const j of this.jellyfish) {
-            this.updateJellyfishTentacles(j, delta);
-            this.updateJellyfishBellPulse(j, delta);
-        }
     }
 
     /**
@@ -2023,7 +1941,6 @@ export class Creature3DRenderer {
             case 'FISH': return this.fish;
             case 'BEES': return this.bees;
             case 'BUTTERFLIES': return this.butterflies;
-            case 'JELLYFISH': return this.jellyfish;
         }
     }
 
@@ -2032,48 +1949,8 @@ export class Creature3DRenderer {
     // CREATURE-TO-CREATURE INTERACTIONS
     // ========================================
 
-    private updateBirdInteractions(delta: number) {
-        for (const bird of this.hummingbirds) {
-            // Skip if in hand-driven behavior
-            if (bird.behavior === 'CURIOUS' || bird.behavior === 'FEEDING' || bird.behavior === 'STARTLED') continue;
-
-            // Clean up invalid targets
-            if (bird.chaseTarget && !this.hummingbirds.includes(bird.chaseTarget)) {
-                bird.chaseTarget = null;
-                if (bird.behavior === 'CHASING' || bird.behavior === 'DIVE_DISPLAY') {
-                    bird.behavior = 'HOVERING';
-                    bird.behaviorTimer = 1;
-                }
-            }
-
-            if (bird.behavior === 'TERRITORIAL' && bird.territoriality > 0.6) {
-                // Look for nearby birds to interact with
-                for (const other of this.hummingbirds) {
-                    if (other === bird || other.behavior === 'STARTLED') continue;
-                    const distSq = bird.position.distanceToSquared(other.position);
-
-                    // Dive display: rise above and dive past
-                    if (distSq < 36 && Math.random() < 0.05 * delta) {
-                        bird.behavior = 'DIVE_DISPLAY';
-                        bird.chaseTarget = other;
-                        bird.diveStartY = bird.position.y + 5;
-                        bird.behaviorTimer = 2.0;
-                        break;
-                    }
-
-                    // Mutual chase: both territorial birds circle each other
-                    if (distSq < 16 && other.behavior === 'TERRITORIAL' && other.territoriality > 0.6 && Math.random() < 0.03 * delta) {
-                        bird.behavior = 'CHASING';
-                        bird.chaseTarget = other;
-                        bird.behaviorTimer = 2.5;
-                        other.behavior = 'CHASING';
-                        other.chaseTarget = bird;
-                        other.behaviorTimer = 2.5;
-                        break;
-                    }
-                }
-            }
-        }
+    private updateBirdInteractions(_delta: number) {
+        // Birds flock peacefully - no territorial behavior
     }
 
     private updateFishInteractions(delta: number) {
@@ -2137,6 +2014,12 @@ export class Creature3DRenderer {
     }
 
     private updateButterflyInteractions(delta: number) {
+        // When no hands detected, butterflies interact much more with each other
+        const hasHands = !!(this.tracking.leftHand || this.tracking.rightHand);
+        const chainProb = hasHands ? 0.015 : 0.06;       // 4x more likely without hands
+        const spiralProb = hasHands ? 0.2 : 0.5;         // 2.5x more likely
+        const spiralRange = hasHands ? 16 : 36;           // 6-unit radius vs 4-unit
+
         for (const b of this.butterflies) {
             // Skip if in hand-driven or startle behavior
             if (b.behavior === 'CURIOUS' || b.behavior === 'STARTLED' || b.behavior === 'PERCHING') continue;
@@ -2152,7 +2035,7 @@ export class Creature3DRenderer {
             }
 
             // Follow-the-leader chain: butterflies follow the one with lower index
-            if (b.behavior === 'FLUTTERING' && b.index > 0 && Math.random() < 0.015 * delta) {
+            if (b.behavior === 'FLUTTERING' && b.index > 0 && Math.random() < chainProb * delta) {
                 const leader = this.butterflies[b.index - 1];
                 if (leader && leader.behavior !== 'STARTLED') {
                     b.chainLeader = leader;
@@ -2167,7 +2050,7 @@ export class Creature3DRenderer {
                     if (other === b || other.index <= b.index) continue;
                     if (other.behavior !== 'FLUTTERING') continue;
                     const distSq = b.position.distanceToSquared(other.position);
-                    if (distSq < 16 && Math.random() < 0.2 * delta) {
+                    if (distSq < spiralRange && Math.random() < spiralProb * delta) {
                         b.behavior = 'SPIRAL_DANCE';
                         b.spiralPartner = other;
                         b.spiralPhase = 0;
@@ -2207,6 +2090,24 @@ export class Creature3DRenderer {
 
         this.updateBirdInteractions(delta);
 
+        // Calculate flock center and average velocity for boids
+        const flockCenter = this._tmpVec7.set(0, 0, 0);
+        const flockVelocity = this._tmpVec8.set(0, 0, 0);
+        for (const bird of this.hummingbirds) {
+            flockCenter.add(bird.position);
+            flockVelocity.add(bird.velocity);
+        }
+        if (this.hummingbirds.length > 0) {
+            flockCenter.divideScalar(this.hummingbirds.length);
+            flockVelocity.divideScalar(this.hummingbirds.length);
+        }
+        // Copy to stable vectors (since _tmpVec7/8 may be reused)
+        const stableFlockCenter = new THREE.Vector3().copy(flockCenter);
+        const stableFlockVelocity = new THREE.Vector3().copy(flockVelocity);
+
+        // Use hand as flock target if available, otherwise flock center
+        const flockTarget = leftHandPos || rightHandPos || stableFlockCenter;
+
         for (const bird of this.hummingbirds) {
             bird.mixer?.update(delta);
 
@@ -2216,16 +2117,19 @@ export class Creature3DRenderer {
             // Reset acceleration
             bird.acceleration.set(0, 0, 0);
 
+            // Apply boids swarm forces (like bees) - always active for smooth flocking
+            if (!leftHandPos && !rightHandPos) {
+                const swarmForce = this.calculateBirdSwarmForce(bird, stableFlockCenter, stableFlockVelocity);
+                bird.acceleration.add(swarmForce);
+            }
+
             // Apply behavior-specific forces
             this.applyHummingbirdBehaviorForce(bird, leftHandPos, rightHandPos, delta);
 
-            // Check territorial interactions with other birds
-            this.checkTerritorialBehavior(bird);
-
-            // Hand proximity evasion - birds avoid slow hands at close range
+            // Hand proximity evasion - birds cautiously avoid hands at close range
             this.applyHandProximityEvasion(bird, leftHandPos, rightHandPos);
 
-            // Force-based separation from other birds
+            // Gentle separation from other birds
             this.applyBirdSeparation(bird);
 
             // Apply boundary forces
@@ -2249,8 +2153,6 @@ export class Creature3DRenderer {
             // Update wing animation speed
             this.updateWingAnimation(bird);
         }
-
-        // Birds use force-based separation - no position-based collision needed
     }
 
     private updateHummingbirdBehavior(
@@ -2303,14 +2205,7 @@ export class Creature3DRenderer {
             }
         }
 
-        // Expire creature-to-creature interaction behaviors
-        if ((bird.behavior === 'DIVE_DISPLAY' || bird.behavior === 'CHASING') && bird.behaviorTimer <= 0) {
-            bird.behavior = 'HOVERING';
-            bird.chaseTarget = null;
-            bird.behaviorTimer = 1 + Math.random();
-        }
-
-        // Behavior state machine
+        // Behavior state machine - calm, bee-like swarming with cautious curiosity
         if (bird.behavior !== 'STARTLED' && bird.behaviorTimer <= 0) {
             const rand = Math.random();
 
@@ -2318,52 +2213,41 @@ export class Creature3DRenderer {
                 const distToHand = bird.position.distanceTo(targetHand);
 
                 if (distToHand < this.BIRD_CURIOSITY_RADIUS) {
-                    // Hand is nearby - rufous hummingbirds are VERY curious
-                    if (rand < bird.curiosity * bird.boldness * 0.9) {
-                        // High chance to approach curiously - rufous are bold
+                    // Hand nearby - cautiously curious (like fish, but braver)
+                    if (rand < bird.curiosity * bird.boldness * 0.7) {
+                        // Cautiously approach
                         bird.behavior = 'CURIOUS';
-                        bird.behaviorTimer = 3 + Math.random() * 4;  // Longer curiosity
+                        bird.behaviorTimer = 3 + Math.random() * 5;
                     } else if (rand < 0.7) {
-                        // Dart around excitedly
-                        bird.behavior = 'DARTING';
-                        bird.behaviorTimer = 0.2 + Math.random() * 0.4;
-                    } else if (rand < 0.85) {
+                        // Hover at safe distance, observing
+                        bird.behavior = 'HOVERING';
+                        bird.behaviorTimer = 2 + Math.random() * 3;
+                    } else {
                         // Feed nearby (hover and examine)
                         bird.behavior = 'FEEDING';
-                        bird.behaviorTimer = 1 + Math.random() * 1.5;
-                    } else {
-                        // Brief hover before next action
-                        bird.behavior = 'HOVERING';
-                        bird.behaviorTimer = 0.5 + Math.random() * 1;
+                        bird.behaviorTimer = 2 + Math.random() * 2;
                     }
                 } else {
-                    // Hand is far - investigate!
-                    if (rand < 0.6 * bird.curiosity) {
-                        // Fly toward to investigate
+                    // Hand is far - cautiously investigate
+                    if (rand < 0.5 * bird.curiosity) {
                         bird.behavior = 'CURIOUS';
-                        bird.behaviorTimer = 2 + Math.random() * 3;
-                    } else if (rand < 0.4) {
+                        bird.behaviorTimer = 3 + Math.random() * 4;
+                    } else if (rand < 0.6) {
                         bird.behavior = 'HOVERING';
-                        bird.behaviorTimer = 2 + Math.random() * 3;
-                    } else if (rand < 0.7) {
-                        bird.behavior = 'DARTING';
-                        bird.behaviorTimer = 0.2 + Math.random() * 0.4;
+                        bird.behaviorTimer = 3 + Math.random() * 4;
                     } else {
                         bird.behavior = 'FEEDING';
-                        bird.behaviorTimer = 2 + Math.random() * 3;
+                        bird.behaviorTimer = 3 + Math.random() * 4;
                     }
                 }
             } else {
-                // No hand detected
-                if (rand < 0.5) {
+                // No hand detected - flock together peacefully
+                if (rand < 0.6) {
                     bird.behavior = 'HOVERING';
-                    bird.behaviorTimer = 2 + Math.random() * 4;
-                } else if (rand < 0.8) {
-                    bird.behavior = 'DARTING';
-                    bird.behaviorTimer = 0.2 + Math.random() * 0.5;
+                    bird.behaviorTimer = 3 + Math.random() * 5;
                 } else {
                     bird.behavior = 'FEEDING';
-                    bird.behaviorTimer = 3 + Math.random() * 4;
+                    bird.behaviorTimer = 3 + Math.random() * 5;
                 }
             }
         }
@@ -2383,25 +2267,25 @@ export class Creature3DRenderer {
 
         switch (bird.behavior) {
             case 'STARTLED': {
-                // Rapid escape
-                const fleeForce = bird.fleeDirection.clone().multiplyScalar(
-                    this.BIRD_ACCELERATION * 2 * bird.startleIntensity
+                // Flee away from hand - cautious, fish-like escape
+                const fleeForce = this._tmpVec4.copy(bird.fleeDirection).multiplyScalar(
+                    this.BIRD_ACCELERATION * 1.5 * bird.startleIntensity
                 );
                 bird.acceleration.add(fleeForce);
-                bird.targetWingSpeed = 30 + bird.startleIntensity * 10;
+                bird.targetWingSpeed = 30 + bird.startleIntensity * 6;
                 break;
             }
 
             case 'CURIOUS': {
-                // Use ANY available hand
+                // Cautiously approach hand - like bees but more hesitant
                 const activeHand = targetHand || leftHand || rightHand;
 
                 if (activeHand) {
-                    // Spread birds around the target - wide enough to avoid overlap
+                    // Spread birds around the hand in a loose flock
                     const birdIndex = bird.index;
                     const numBirds = this.hummingbirds.length;
                     const phi = (birdIndex / numBirds) * Math.PI * 2;
-                    const spreadRadius = 6.0;
+                    const spreadRadius = 7.0;  // Wider spread - cautious distance
 
                     const spreadOffset = new THREE.Vector3(
                         Math.cos(phi) * spreadRadius,
@@ -2409,23 +2293,23 @@ export class Creature3DRenderer {
                         Math.sin(phi) * spreadRadius * 0.5
                     );
 
-                    const targetPos = activeHand.clone().add(spreadOffset);
-                    const toTarget = targetPos.clone().sub(bird.position);
+                    const targetPos = this._tmpVec5.copy(activeHand).add(spreadOffset);
+                    const toTarget = this._tmpVec6.copy(targetPos).sub(bird.position);
                     const dist = toTarget.length();
 
-                    // Strong spring — precise, snappy repositioning
-                    const springStrength = dist > 5 ? 60 : 38;
+                    // Gentle spring - cautious approach (much softer than bees)
+                    const springStrength = dist > 8 ? 12 : dist > 4 ? 8 : 4;
                     bird.acceleration.add(toTarget.multiplyScalar(springStrength));
 
-                    // Strong damping for critically-damped settling (no oscillation)
-                    bird.acceleration.add(bird.velocity.clone().multiplyScalar(-10));
+                    // Moderate damping for smooth, floaty settling
+                    bird.acceleration.addScaledVector(bird.velocity, -5);
 
                     // Apply hover motion when close and settled
-                    if (dist <= 3) {
+                    if (dist <= 4) {
                         this.applyHoverMotion(bird);
                     }
 
-                    bird.targetWingSpeed = 30;
+                    bird.targetWingSpeed = 28;
                 } else {
                     bird.behavior = 'HOVERING';
                 }
@@ -2433,160 +2317,72 @@ export class Creature3DRenderer {
             }
 
             case 'FEEDING': {
-                // Hover in place with slight forward tilt (feeding posture)
+                // Gentle hover in place - examining surroundings
                 this.applyHoverMotion(bird);
 
-                // Add small random movements (examining flowers)
-                bird.acceleration.x += Math.sin(this.time * 5 + bird.phase) * 0.3;
-                bird.acceleration.y += Math.cos(this.time * 4 + bird.phase * 1.3) * 0.2;
+                // Subtle wandering movements
+                bird.acceleration.x += Math.sin(this.time * 3 + bird.phase) * 0.2;
+                bird.acceleration.y += Math.cos(this.time * 2.5 + bird.phase * 1.3) * 0.15;
+                bird.acceleration.z += Math.sin(this.time * 2 + bird.phase * 0.7) * 0.1;
 
-                bird.targetWingSpeed = 26;
-                break;
-            }
+                // Light damping for floaty feel
+                bird.acceleration.addScaledVector(bird.velocity, -3);
 
-            case 'DARTING': {
-                // Quick, erratic darting movements - very bird-like
-                if (bird.behaviorTimer > 0) {
-                    // Multiple direction changes during dart
-                    if (Math.random() < 0.15) {
-                        // Sudden direction change
-                        const dartDir = new THREE.Vector3(
-                            (Math.random() - 0.5) * 2,
-                            (Math.random() - 0.3) * 1.5,  // Slight upward bias
-                            (Math.random() - 0.5) * 1
-                        ).normalize();
-
-                        // Toward hand if present (curious darting)
-                        if (targetHand) {
-                            const toHand = targetHand.clone().sub(bird.position).normalize();
-                            dartDir.lerp(toHand, 0.3);  // Blend toward hand
-                        }
-
-                        bird.acceleration.add(dartDir.multiplyScalar(this.BIRD_ACCELERATION * 2));
-                    }
-
-                    // Quick hover bursts between darts
-                    if (bird.velocity.length() < 3) {
-                        this.applyHoverMotion(bird);
-                    }
-
-                    bird.targetWingSpeed = 35;  // Very fast wings during darting
-                }
-                break;
-            }
-
-            case 'TERRITORIAL': {
-                // Chase another bird
-                if (bird.territorialTarget) {
-                    const toTarget = bird.territorialTarget.position.clone().sub(bird.position);
-                    const dist = toTarget.length();
-
-                    if (dist > 1 && dist < 15) {
-                        toTarget.normalize().multiplyScalar(this.BIRD_ACCELERATION * 1.2);
-                        bird.acceleration.add(toTarget);
-                        bird.targetWingSpeed = 34;
-                    } else {
-                        bird.behavior = 'HOVERING';
-                        bird.territorialTarget = null;
-                    }
-                } else {
-                    bird.behavior = 'HOVERING';
-                }
-                break;
-            }
-
-            case 'DIVE_DISPLAY': {
-                if (bird.chaseTarget) {
-                    if (bird.diveStartY > bird.position.y) {
-                        // Rising phase - fly upward
-                        bird.acceleration.y += this.BIRD_ACCELERATION * 1.5;
-                        bird.targetWingSpeed = 34;
-                    } else {
-                        // Dive phase - swoop toward chase target
-                        this._tmpVec1.copy(bird.chaseTarget.position).sub(bird.position).normalize().multiplyScalar(bird.dartSpeed);
-                        bird.acceleration.add(this._tmpVec1);
-                        bird.targetWingSpeed = 36;
-                    }
-                } else {
-                    bird.behavior = 'HOVERING';
-                    bird.behaviorTimer = 1;
-                }
-                break;
-            }
-
-            case 'CHASING': {
-                if (bird.chaseTarget) {
-                    // Perpendicular orbital force around chase target
-                    this._tmpVec1.copy(bird.position).sub(bird.chaseTarget.position);
-                    // Cross product with up vector (0,1,0) to get perpendicular
-                    this._tmpVec2.set(
-                        -this._tmpVec1.z,
-                        0,
-                        this._tmpVec1.x
-                    ).normalize().multiplyScalar(8);
-                    bird.acceleration.add(this._tmpVec2);
-                    // Also steer slightly toward target to maintain distance
-                    this._tmpVec1.normalize().multiplyScalar(-2);
-                    bird.acceleration.add(this._tmpVec1);
-                    bird.targetWingSpeed = 33;
-                } else {
-                    bird.behavior = 'HOVERING';
-                    bird.behaviorTimer = 1;
-                }
+                bird.targetWingSpeed = 25;
                 break;
             }
 
             case 'RETURNING': {
-                // Return to a comfortable position near the hand
+                // Cautiously return after startle - slower than before
                 const returnTarget = targetHand
-                    ? targetHand.clone().add(bird.hoverOffset)
-                    : new THREE.Vector3(
+                    ? this._tmpVec5.copy(targetHand).add(bird.hoverOffset)
+                    : this._tmpVec5.set(
                         Math.sin(bird.phase) * 8,
                         Math.cos(bird.phase * 0.7) * 5,
                         Math.sin(bird.phase * 0.5) * 3
                     );
 
-                const toReturn = returnTarget.clone().sub(bird.position);
+                const toReturn = this._tmpVec6.copy(returnTarget).sub(bird.position);
                 const dist = toReturn.length();
 
-                // Very strong spring — fast return to hand
-                const springStrength = dist > 3 ? 70 : 45;
-                bird.acceleration.add(toReturn.clone().multiplyScalar(springStrength));
+                // Moderate spring - cautious return (fish-like hesitance)
+                const springStrength = dist > 5 ? 10 : 6;
+                bird.acceleration.addScaledVector(toReturn, springStrength);
 
-                // Strong damping for stable arrival
-                bird.acceleration.add(bird.velocity.clone().multiplyScalar(-12));
-                bird.targetWingSpeed = 28;
+                // Moderate damping
+                bird.acceleration.addScaledVector(bird.velocity, -6);
+                bird.targetWingSpeed = 26;
                 break;
             }
 
             case 'HOVERING':
             default: {
-                // Use ANY available hand
+                // Bee-like swarming around hand or flock center
                 const activeHand = targetHand || leftHand || rightHand;
 
                 if (activeHand) {
-                    // Spread birds around the target position - wide enough to avoid overlap
+                    // Spread birds around hand - bee-like orbiting
                     const birdIndex = bird.index;
                     const numBirds = this.hummingbirds.length;
-                    const phi = (birdIndex / numBirds) * Math.PI * 2;
+                    const phi = (birdIndex / numBirds) * Math.PI * 2 + this.time * 0.15;  // Slow orbit
 
-                    const spreadRadius = 6.0;
+                    const spreadRadius = 6.5;
                     const offset = new THREE.Vector3(
                         Math.cos(phi) * spreadRadius,
                         (birdIndex % 3 - 1) * 1.8,
                         Math.sin(phi) * spreadRadius * 0.6
                     );
 
-                    const targetPos = activeHand.clone().add(offset);
-                    const toTarget = targetPos.clone().sub(bird.position);
+                    const targetPos = this._tmpVec5.copy(activeHand).add(offset);
+                    const toTarget = this._tmpVec6.copy(targetPos).sub(bird.position);
                     const dist = toTarget.length();
 
-                    // Strong spring — quick, precise repositioning
-                    const springStrength = dist > 5 ? 60 : 32;
+                    // Gentle spring - smooth bee-like approach
+                    const springStrength = dist > 8 ? 10 : dist > 4 ? 7 : 4;
                     bird.acceleration.add(toTarget.multiplyScalar(springStrength));
 
-                    // Strong damping for stable, critically-damped settling
-                    bird.acceleration.add(bird.velocity.clone().multiplyScalar(-10));
+                    // Moderate damping for floaty settling
+                    bird.acceleration.addScaledVector(bird.velocity, -5);
                 }
 
                 this.applyHoverMotion(bird);
@@ -2618,10 +2414,9 @@ export class Creature3DRenderer {
         leftHand: THREE.Vector3 | null,
         rightHand: THREE.Vector3 | null
     ) {
-        // Birds maintain a minimum distance from hands even when not startled
-        // They won't fly through a slow-moving hand
-        const minDist = 3.0;
-        const evasionStrength = 8;
+        // Birds are cautious - maintain safe distance from hands
+        const minDist = 5.0;    // Wider comfort zone (fish-like caution)
+        const evasionStrength = 6;  // Gentle but firm evasion
         const tv = this._tmpVec2;
 
         const hands = [leftHand, rightHand];
@@ -2637,26 +2432,51 @@ export class Creature3DRenderer {
         }
     }
 
-    private checkTerritorialBehavior(bird: Hummingbird) {
-        if (bird.behavior === 'STARTLED' || bird.behavior === 'TERRITORIAL') return;
+    private calculateBirdSwarmForce(bird: Hummingbird, flockCenter: THREE.Vector3, flockVelocity: THREE.Vector3): THREE.Vector3 {
+        // Boids-like swarming (similar to bees) - keeps flock together smoothly
+        const separation = new THREE.Vector3();
+        const alignment = new THREE.Vector3();
+        let separationCount = 0;
+        let alignmentCount = 0;
 
-        // Check if another bird is too close
         for (const other of this.hummingbirds) {
             if (other === bird) continue;
-
             const dist = bird.position.distanceTo(other.position);
-            if (dist < this.BIRD_TERRITORIAL_RADIUS && Math.random() < bird.territoriality * 0.02) {
-                bird.behavior = 'TERRITORIAL';
-                bird.territorialTarget = other;
-                bird.behaviorTimer = 1 + Math.random() * 1.5;
-                break;
+
+            // Separation: avoid crowding
+            if (dist < this.BIRD_SEPARATION_RADIUS && dist > 0.01) {
+                const diff = this._tmpVec4.copy(bird.position).sub(other.position).normalize().divideScalar(dist);
+                separation.add(diff);
+                separationCount++;
+            }
+
+            // Alignment: match velocity of nearby birds
+            if (dist < this.BIRD_SWARM_RADIUS) {
+                alignment.add(other.velocity);
+                alignmentCount++;
             }
         }
+
+        if (separationCount > 0) {
+            separation.divideScalar(separationCount);
+            separation.normalize().multiplyScalar(this.BIRD_SEPARATION_WEIGHT);
+        }
+
+        if (alignmentCount > 0) {
+            alignment.divideScalar(alignmentCount);
+            alignment.normalize().multiplyScalar(this.BIRD_ALIGNMENT_WEIGHT);
+        }
+
+        // Cohesion: move toward flock center
+        const cohesion = new THREE.Vector3().copy(flockCenter).sub(bird.position);
+        cohesion.normalize().multiplyScalar(this.BIRD_COHESION_WEIGHT);
+
+        return separation.add(alignment).add(cohesion);
     }
 
     private applyBirdSeparation(bird: Hummingbird) {
-        const BIRD_SEP_RADIUS = 3.5;
-        const BIRD_SEP_STRENGTH = 3.0;
+        const BIRD_SEP_RADIUS = 2.5;   // Gentler separation - birds can be closer
+        const BIRD_SEP_STRENGTH = 1.5;  // Softer push
         const sep = this._tmpVec3;
         sep.set(0, 0, 0);
 
@@ -2737,53 +2557,36 @@ export class Creature3DRenderer {
     }
 
     private applyHummingbirdPhysics(bird: Hummingbird, dt: number) {
-        // Determine max speed based on behavior
-        // NO DRAG for hover/curious - damping is handled in behavior force for direct response
+        // Smooth physics - drag always active for floaty, bee-like movement
         let maxSpeed = bird.hoverSpeed;
-        let drag = 1.0;  // No drag by default - let damping handle it
+        let drag = 0.92;  // Always some drag for smooth deceleration
 
         switch (bird.behavior) {
             case 'STARTLED':
-                maxSpeed = bird.dartSpeed * (1 + bird.startleIntensity * 0.5);
-                drag = 0.95;
-                break;
-            case 'DARTING':
-                maxSpeed = bird.dartSpeed;
-                drag = 0.92;
-                break;
-            case 'TERRITORIAL':
-                maxSpeed = bird.dartSpeed * 0.8;
-                drag = 0.9;
-                break;
-            case 'DIVE_DISPLAY':
-                maxSpeed = bird.dartSpeed * 1.2;
-                drag = 0.93;
-                break;
-            case 'CHASING':
-                maxSpeed = bird.dartSpeed * 0.9;
-                drag = 0.92;
+                maxSpeed = bird.dartSpeed * (1 + bird.startleIntensity * 0.3);
+                drag = 0.94;
                 break;
             case 'CURIOUS':
             case 'RETURNING':
-                maxSpeed = this.BIRD_CRUISE_SPEED * 1.5;  // Faster tracking
-                drag = 1.0;  // No drag - damping in behavior handles stopping
+                maxSpeed = this.BIRD_CRUISE_SPEED * 1.2;
+                drag = 0.90;
                 break;
             case 'FEEDING':
             case 'HOVERING':
             default:
-                maxSpeed = this.BIRD_CRUISE_SPEED * 1.8;  // Increased for screen edge tracking
-                drag = 1.0;  // No drag - damping in behavior handles stopping
+                maxSpeed = this.BIRD_CRUISE_SPEED * 1.5;
+                drag = 0.88;  // More drag for floaty hovering
                 break;
         }
 
-        // Limit acceleration
-        const maxAccel = bird.behavior === 'STARTLED' ? this.BIRD_ACCELERATION * 2.5 : this.BIRD_ACCELERATION;
+        // Limit acceleration - gentler cap
+        const maxAccel = bird.behavior === 'STARTLED' ? this.BIRD_ACCELERATION * 1.8 : this.BIRD_ACCELERATION;
         if (bird.acceleration.length() > maxAccel) {
             bird.acceleration.normalize().multiplyScalar(maxAccel);
         }
 
         // Apply acceleration
-        bird.velocity.add(bird.acceleration.clone().multiplyScalar(dt));
+        bird.velocity.addScaledVector(bird.acceleration, dt);
 
         // Apply drag
         bird.velocity.multiplyScalar(drag);
@@ -2795,7 +2598,7 @@ export class Creature3DRenderer {
         }
 
         // Update position
-        bird.position.add(bird.velocity.clone().multiplyScalar(dt));
+        bird.position.addScaledVector(bird.velocity, dt);
 
         // Hard boundaries
         this.clampBirdToBoundaries(bird);
@@ -2926,8 +2729,6 @@ export class Creature3DRenderer {
         // Behavior glow
         if (bird.behavior === 'STARTLED') {
             glowIntensity += bird.startleIntensity * 0.2;
-        } else if (bird.behavior === 'TERRITORIAL') {
-            glowIntensity += 0.15; // Aggressive display
         } else if (bird.behavior === 'CURIOUS') {
             glowIntensity += 0.05;
         }
@@ -3167,7 +2968,7 @@ export class Creature3DRenderer {
             const dist = fish.position.distanceTo(other.position);
 
             if (dist < this.SEPARATION_RADIUS && dist > 0) {
-                const diff = fish.position.clone().sub(other.position).normalize();
+                const diff = this._tmpVec7.copy(fish.position).sub(other.position).normalize();
                 diff.divideScalar(dist);
                 separation.add(diff);
                 separationCount++;
@@ -3203,7 +3004,7 @@ export class Creature3DRenderer {
 
         switch (fish.behavior) {
             case 'STARTLED': {
-                const fleeForce = fish.fleeDirection.clone().multiplyScalar(
+                const fleeForce = this._tmpVec4.copy(fish.fleeDirection).multiplyScalar(
                     this.FLEE_SPEED * fish.startleIntensity
                 );
                 fish.acceleration.add(fleeForce);
@@ -3228,8 +3029,8 @@ export class Creature3DRenderer {
                         Math.sin(phi) * spreadRadius * 0.5
                     );
 
-                    const targetPos = activeHand.clone().add(offset);
-                    const toTarget = targetPos.clone().sub(fish.position);
+                    const targetPos = this._tmpVec5.copy(activeHand).add(offset);
+                    const toTarget = this._tmpVec6.copy(targetPos).sub(fish.position);
                     const dist = toTarget.length();
 
                     // Smooth spring — fish glide fluidly toward position
@@ -3237,7 +3038,7 @@ export class Creature3DRenderer {
                     fish.acceleration.add(toTarget.normalize().multiplyScalar(springStrength * Math.min(dist, 5)));
 
                     // Damping
-                    fish.acceleration.add(fish.velocity.clone().multiplyScalar(-3.5));
+                    fish.acceleration.addScaledVector(fish.velocity, -3.5);
                 }
                 break;
             }
@@ -3312,8 +3113,8 @@ export class Creature3DRenderer {
                         (fishIndex % 3 - 1) * 2.0 + Math.sin(this.time * 0.5 + fish.phase) * 0.8,
                         Math.sin(phi) * spreadRadius * 0.5
                     );
-                    const targetPos = activeHand.clone().add(offset);
-                    const toTarget = targetPos.clone().sub(fish.position);
+                    const targetPos = this._tmpVec5.copy(activeHand).add(offset);
+                    const toTarget = this._tmpVec6.copy(targetPos).sub(fish.position);
                     const dist = toTarget.length();
 
                     // Gentle spring - fish glide smoothly, not snap
@@ -3321,10 +3122,10 @@ export class Creature3DRenderer {
                     fish.acceleration.add(toTarget.normalize().multiplyScalar(springStrength * Math.min(dist, 6)));
 
                     // Smooth damping
-                    fish.acceleration.add(fish.velocity.clone().multiplyScalar(-2.5));
+                    fish.acceleration.addScaledVector(fish.velocity, -2.5);
                 } else {
                     // Schooling without hand: gentle forward swimming with slight turns
-                    const forwardBias = fish.velocity.clone().normalize().multiplyScalar(1.0);
+                    const forwardBias = this._tmpVec8.copy(fish.velocity).normalize().multiplyScalar(1.0);
                     // Add gentle wandering so school spreads and moves
                     forwardBias.x += Math.sin(this.time * 0.7 + fish.phase * 2) * 0.5;
                     forwardBias.y += Math.sin(this.time * 0.5 + fish.phase * 3) * 0.3;
@@ -3364,7 +3165,7 @@ export class Creature3DRenderer {
             fish.acceleration.normalize().multiplyScalar(maxAccel);
         }
 
-        fish.velocity.add(fish.acceleration.clone().multiplyScalar(dt));
+        fish.velocity.addScaledVector(fish.acceleration, dt);
         fish.velocity.multiplyScalar(this.FISH_DRAG);
 
         const maxSpeed = fish.behavior === 'STARTLED'
@@ -3381,7 +3182,7 @@ export class Creature3DRenderer {
             fish.velocity.normalize().multiplyScalar(minSpeed);
         }
 
-        fish.position.add(fish.velocity.clone().multiplyScalar(dt));
+        fish.position.addScaledVector(fish.velocity, dt);
         this.clampFishToBoundaries(fish);
     }
 
@@ -3735,7 +3536,7 @@ export class Creature3DRenderer {
 
             // Separation - avoid crowding
             if (dist < this.BEE_SEPARATION_RADIUS && dist > 0) {
-                const diff = bee.position.clone().sub(other.position).normalize();
+                const diff = this._tmpVec7.copy(bee.position).sub(other.position).normalize();
                 diff.divideScalar(dist);  // Weight by inverse distance
                 separation.add(diff);
                 separationCount++;
@@ -3783,7 +3584,7 @@ export class Creature3DRenderer {
         switch (bee.behavior) {
             case 'DEFENSIVE': {
                 // Rapid defensive flight away from threat
-                const fleeForce = bee.fleeDirection.clone().multiplyScalar(
+                const fleeForce = this._tmpVec4.copy(bee.fleeDirection).multiplyScalar(
                     this.BEE_MAX_SPEED * 1.5 * bee.startleIntensity
                 );
                 bee.acceleration.add(fleeForce);
@@ -3816,8 +3617,8 @@ export class Creature3DRenderer {
                         ((beeIndex % 3) - 1) * 1.2 + Math.sin(bee.bodyBobPhase) * 0.1,
                         Math.sin(phi) * spreadRadius * 0.5
                     );
-                    const targetPos = activeHand.clone().add(offset);
-                    const toTarget = targetPos.clone().sub(bee.position);
+                    const targetPos = this._tmpVec5.copy(activeHand).add(offset);
+                    const toTarget = this._tmpVec6.copy(targetPos).sub(bee.position);
                     const dist = toTarget.length();
 
                     // Strong spring — energetic investigation
@@ -3825,7 +3626,7 @@ export class Creature3DRenderer {
                     bee.acceleration.add(toTarget.multiplyScalar(springStrength));
 
                     // Smooth damping
-                    bee.acceleration.add(bee.velocity.clone().multiplyScalar(-6));
+                    bee.acceleration.addScaledVector(bee.velocity, -6);
 
                     // Separation
                     // Collision resolved after all bees updated
@@ -3848,7 +3649,7 @@ export class Creature3DRenderer {
 
                 // Stay near hand if present
                 if (targetHand) {
-                    const toHand = targetHand.clone().sub(bee.position);
+                    const toHand = this._tmpVec8.copy(targetHand).sub(bee.position);
                     const dist = toHand.length();
                     if (dist > 3) {
                         toHand.normalize().multiplyScalar(dist * 2);
@@ -3897,8 +3698,8 @@ export class Creature3DRenderer {
                         Math.sin(phi) * spreadRadius * 0.5
                     );
 
-                    const targetPos = activeHand.clone().add(offset);
-                    const toTarget = targetPos.clone().sub(bee.position);
+                    const targetPos = this._tmpVec5.copy(activeHand).add(offset);
+                    const toTarget = this._tmpVec6.copy(targetPos).sub(bee.position);
                     const dist = toTarget.length();
 
                     // Energetic spring — swarming toward hand
@@ -3906,7 +3707,7 @@ export class Creature3DRenderer {
                     bee.acceleration.add(toTarget.multiplyScalar(springStrength));
 
                     // Smooth damping
-                    bee.acceleration.add(bee.velocity.clone().multiplyScalar(-5));
+                    bee.acceleration.addScaledVector(bee.velocity, -5);
 
                     // Separation to prevent clustering
                     // Collision resolved after all bees updated
@@ -3918,7 +3719,7 @@ export class Creature3DRenderer {
                         Math.cos(bee.zigzagPhase * 0.3) * 0.2
                     );
                     bee.acceleration.add(hoverForce);
-                    bee.acceleration.add(bee.velocity.clone().multiplyScalar(-3));
+                    bee.acceleration.addScaledVector(bee.velocity, -3);
                 }
 
                 // Add subtle zigzag for natural bee movement
@@ -3995,7 +3796,7 @@ export class Creature3DRenderer {
         }
 
         // Apply acceleration
-        bee.velocity.add(bee.acceleration.clone().multiplyScalar(dt));
+        bee.velocity.addScaledVector(bee.acceleration, dt);
 
         // Apply drag
         bee.velocity.multiplyScalar(drag);
@@ -4022,7 +3823,7 @@ export class Creature3DRenderer {
         }
 
         // Update position
-        bee.position.add(bee.velocity.clone().multiplyScalar(dt));
+        bee.position.addScaledVector(bee.velocity, dt);
 
         // Hard boundaries
         this.clampBeeToBoundaries(bee);
@@ -4242,16 +4043,16 @@ export class Creature3DRenderer {
                     }
                 }
             } else {
-                // No hand detected
-                if (rand < 0.4) {
+                // No hand detected -- butterflies are frantic, chase each other
+                if (rand < 0.15) {
                     b.behavior = 'DRIFTING';
-                    b.behaviorTimer = 3 + Math.random() * 5;
-                } else if (rand < 0.7) {
-                    b.behavior = 'FLUTTERING';
                     b.behaviorTimer = 2 + Math.random() * 3;
+                } else if (rand < 0.75) {
+                    b.behavior = 'FLUTTERING';
+                    b.behaviorTimer = 1.5 + Math.random() * 2;
                 } else {
                     b.behavior = 'GLIDING'; b.glideTimer = 0;
-                    b.behaviorTimer = 2 + Math.random() * 3;
+                    b.behaviorTimer = 1.5 + Math.random() * 2;
                 }
             }
         }
@@ -4359,9 +4160,8 @@ export class Creature3DRenderer {
                     b.acceleration.addScaledVector(b.velocity, -4);
                 } else {
                     // Frantic fluttering - dart between random waypoints across the screen
-                    // Same approach as bee FORAGING: strong directional force, no velocity damping
-                    // (let physics drag handle damping, just like bees)
-                    const waypointPeriod = 4.0 + b.phase * 2.0; // 4-6 seconds - enough time to reach waypoint
+                    // Faster direction changes and snappier movement when no hand detected
+                    const waypointPeriod = 2.0 + b.phase * 2.0; // 2-4 seconds (faster than with hand)
                     const waypointIdx = Math.floor(this.time / waypointPeriod + b.phase * 10);
                     // Pseudo-random waypoint position using hash
                     const wpX = Math.sin(waypointIdx * 127.1 + b.phase * 311.7) * 16;
@@ -4370,18 +4170,15 @@ export class Creature3DRenderer {
                     tv1.set(wpX - b.position.x, wpY - b.position.y, -b.position.z * 0.15);
                     const wpDist = tv1.length();
                     if (wpDist > 0.1) {
-                        // Force must be ~25-30 for butterfly to reach ~4 units/sec with dt=0.016 and drag=0.90
-                        // v_steady = F * dt / (1/drag - 1) → F = v * 0.111 / 0.016 ≈ v * 6.94
-                        // For 4 units/sec: F ≈ 28
-                        const forceScale = wpDist > 5 ? 28 :
-                                          wpDist > 2 ? 16 :
-                                          6;
+                        const forceScale = wpDist > 5 ? 32 :
+                                          wpDist > 2 ? 20 :
+                                          8;
                         b.acceleration.addScaledVector(tv1.normalize(), forceScale);
                     }
-                    // Light erratic zigzag (much weaker than directional force)
-                    b.acceleration.x += Math.sin(this.time * 5 + b.phase * 17) * 1.5;
-                    b.acceleration.y += Math.sin(this.time * 3.7 + b.phase * 11) * 1.0;
-                    b.acceleration.z += Math.cos(this.time * 4.2 + b.phase * 7) * 0.6;
+                    // Stronger erratic zigzag for frantic movement
+                    b.acceleration.x += Math.sin(this.time * 5 + b.phase * 17) * 2.5;
+                    b.acceleration.y += Math.sin(this.time * 3.7 + b.phase * 11) * 1.5;
+                    b.acceleration.z += Math.cos(this.time * 4.2 + b.phase * 7) * 1.0;
                 }
                 break;
             }
@@ -4619,7 +4416,7 @@ export class Creature3DRenderer {
             }
         }
 
-        b.velocity.add(b.acceleration.clone().multiplyScalar(dt));
+        b.velocity.addScaledVector(b.acceleration, dt);
         b.velocity.multiplyScalar(drag);
 
         const speed = b.velocity.length();
@@ -4642,7 +4439,7 @@ export class Creature3DRenderer {
             }
         }
 
-        b.position.add(b.velocity.clone().multiplyScalar(dt));
+        b.position.addScaledVector(b.velocity, dt);
 
         // Hard Z boundaries
         const maxZHard = 20;
@@ -4734,928 +4531,6 @@ export class Creature3DRenderer {
     }
 
     // ========================================
-    // JELLYFISH CREATION & UPDATE
-    // ========================================
-
-    private createJellyfish() {
-        const count = this.JELLY_COUNT;
-        const targets: Jellyfish['trackingTarget'][] = ['leftHand', 'rightHand', 'drift'];
-
-        // ═══════════════════════════════════════════════════════════════
-        // GLSL Shaders — custom procedural jellyfish rendering
-        // Technique: Fresnel rim lighting + procedural UV distortion
-        // ═══════════════════════════════════════════════════════════════
-
-        // Bell vertex shader — passes UV + radial normal
-        const bellVertShader = `
-            varying vec2 vUv;
-            varying vec3 vNormal;
-            void main() {
-                vUv = uv;
-                vNormal = normalize(position);
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `;
-
-        // Bell fragment shader — organic procedural pattern with rim-dependent translucency
-        const bellFragShader = `
-            uniform vec3 diffuse;
-            uniform vec3 diffuseB;
-            uniform float opacity;
-            uniform float time;
-            varying vec2 vUv;
-            varying vec3 vNormal;
-
-            const vec3 eye = vec3(0.0, 0.0, 1.0);
-
-            float wave(float vMin, float vMax, float t) {
-                float halfRange = (vMax - vMin) / vMax * 0.5;
-                return (sin(t) * halfRange + (1.0 - halfRange)) * vMax;
-            }
-
-            float organicPattern(vec2 uv, float base, float sc) {
-                // Radial wave bands
-                base -= sin(uv.x * 55.0) * 0.22 + sin(uv.x * 48.0 * sc) * 0.28 + 0.72;
-                // Cross-wave interference
-                base -= sin(uv.y * sin(uv.x * 6.0) * 4.5 * sc) * 0.06;
-                base -= sin(uv.y * sin((1.0 - uv.x) * 6.0) * 4.5 * sc) * 0.06;
-                // Organic curl patterns
-                base -= sin(uv.y * sin(uv.y + cos(uv.x) * 2.2) * 3.2 * sc) * 0.14;
-                base -= sin(uv.y * sin(uv.y + cos(1.0 - uv.x) * 2.2) * 3.2 * sc) * 0.14;
-                // Lower bell veins
-                base -= sin((uv.y - 1.3) * sin(uv.y + cos(uv.x - 0.8) * 2.0) * 3.8 * sc) * 0.14;
-                base -= sin((uv.y - 1.3) * sin(uv.y + cos(uv.x) * 2.2) * 2.8 * sc) * 0.14;
-                // Vertical gradient
-                base -= sin(uv.y * 4.8) * 0.16 + sin(uv.y * 2.2) * 1.2;
-                return base;
-            }
-
-            void main() {
-                vec3 normal = normalize(mat3(viewMatrix) * vNormal);
-                float rim = 1.0 - max(dot(eye, normal), 0.0);
-                float pattern = 0.0;
-
-                vec2 uv0 = vUv;
-                vec2 uv1 = uv0 + rim;
-                vec2 uv2 = vec2(-rim * 0.25);
-                vec2 uv3 = vec2(rim, uv0.y);
-
-                float sc0 = wave(8.0, 15.0, time * 0.25 + 0.5);
-                float sc1 = wave(12.0, 20.0, time * 0.125);
-
-                pattern += max(organicPattern(uv0, 2.0, sc0), -0.5);
-                pattern += max(organicPattern(uv1, 2.0, sc1), 0.25);
-                pattern += max(organicPattern(uv2, 1.0, 1.0), -0.25);
-                pattern += max(organicPattern(uv3, 1.0, 1.0), -0.25);
-
-                gl_FragColor = vec4(
-                    mix(diffuse, diffuseB, smoothstep(-0.5, 0.5, pattern)),
-                    (1.0 - smoothstep(-0.5, 2.5, pattern)) * opacity
-                );
-            }
-        `;
-
-        // Gel vertex shader — rim glow overlay
-        const gelVertShader = `
-            varying vec3 vNormal;
-            void main() {
-                vNormal = normalize(position);
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `;
-
-        // Gel fragment shader — layered smoothstep rim lighting
-        const gelFragShader = `
-            uniform vec3 diffuse;
-            uniform float opacity;
-            varying vec3 vNormal;
-            void main() {
-                vec3 eye = vec3(0.0, 0.0, 1.0);
-                vec3 normal = normalize(mat3(viewMatrix) * vNormal);
-                float rim = 1.0 - max(dot(eye, normal), 0.0);
-                float rimLight = 0.25 +
-                    smoothstep(0.25, 1.0, rim) * 0.5 +
-                    smoothstep(0.90, 1.0, rim) * 0.8;
-                gl_FragColor = vec4(diffuse * vec3(rimLight), rimLight * opacity);
-            }
-        `;
-
-        // Tentacle vertex shader — distance from center
-        const tentacleVertShader = `
-            varying float vDist;
-            void main() {
-                vDist = length(position);
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `;
-
-        // Tentacle fragment shader — inverse-square distance falloff
-        const tentacleFragShader = `
-            uniform vec3 diffuse;
-            uniform float opacity;
-            uniform float area;
-            varying float vDist;
-            void main() {
-                float illumination = area * 2.0 / max(vDist * vDist, 0.01);
-                gl_FragColor = vec4(
-                    mix(vec3(1.0), diffuse, clamp(illumination, 0.0, 1.25)),
-                    clamp(opacity * illumination * illumination, 0.0, opacity)
-                );
-            }
-        `;
-
-        // Dust vertex shader — time-animated drift with sinusoidal wobble
-        const dustVertShader = `
-            uniform float size;
-            uniform float scale;
-            uniform float time;
-            uniform float area;
-            varying float vDist;
-            void main() {
-                float offsetY = mod(position.y - time, area) - area * 0.5;
-                vec3 offsetPos = vec3(
-                    position.x + sin(cos(offsetY * 0.1) + sin(offsetY * 0.1 + position.x * 0.1) * 2.0),
-                    offsetY,
-                    position.z + sin(cos(offsetY * 0.1) + sin(offsetY * 0.1 + position.z * 0.1) * 2.0)
-                );
-                vDist = length(offsetPos);
-                vec4 mvPosition = modelViewMatrix * vec4(offsetPos, 1.0);
-                gl_PointSize = size * (scale / length(mvPosition.xyz));
-                gl_Position = projectionMatrix * mvPosition;
-            }
-        `;
-
-        // Dust fragment shader — distance-based opacity falloff
-        const dustFragShader = `
-            uniform vec3 color;
-            uniform float opacity;
-            uniform float area;
-            varying float vDist;
-            void main() {
-                float radius = area * 0.5;
-                float illumination = max(0.0, (radius - vDist) / radius);
-                gl_FragColor = vec4(color, illumination * illumination * opacity);
-            }
-        `;
-
-        // ═══════════════════════════════════════════════════════════════
-        // Create jellyfish instances
-        // ═══════════════════════════════════════════════════════════════
-
-        for (let i = 0; i < count; i++) {
-            const palette = this.JELLY_PALETTES[i % this.JELLY_PALETTES.length];
-            const group = new THREE.Group();
-
-            // ── Bell profile (tall mushroom/umbrella shape) ──
-            const bellProfile = [
-                new THREE.Vector2(0.0,   2.0),    // apex
-                new THREE.Vector2(0.05,  1.98),
-                new THREE.Vector2(0.15,  1.90),
-                new THREE.Vector2(0.30,  1.70),
-                new THREE.Vector2(0.48,  1.40),
-                new THREE.Vector2(0.62,  1.05),
-                new THREE.Vector2(0.72,  0.70),
-                new THREE.Vector2(0.80,  0.35),
-                new THREE.Vector2(0.85,  0.10),
-                new THREE.Vector2(0.86,  0.0),    // rim edge
-                new THREE.Vector2(0.82, -0.06),
-                new THREE.Vector2(0.70, -0.12),
-                new THREE.Vector2(0.50, -0.15),
-                new THREE.Vector2(0.25, -0.14),
-                new THREE.Vector2(0.0,  -0.12),
-            ];
-            const segments = 32;
-            const bellGeo = new THREE.LatheGeometry(bellProfile, segments);
-            const bellHeight = 2.0;
-            const targetSize = 1.5 + Math.random() * 1.0;
-            bellGeo.scale(targetSize, targetSize, targetSize);
-
-            // ── Bell mesh (main body — procedural organic pattern + rim lighting) ──
-            const bellMat = new THREE.ShaderMaterial({
-                vertexShader: bellVertShader,
-                fragmentShader: bellFragShader,
-                uniforms: {
-                    diffuse: { value: new THREE.Color(palette.diffuse) },
-                    diffuseB: { value: new THREE.Color(palette.diffuseB) },
-                    opacity: { value: 0.85 },
-                    time: { value: 0.0 },
-                },
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                side: THREE.DoubleSide,
-                depthWrite: false,
-            });
-            const bellMesh = new THREE.Mesh(bellGeo, bellMat);
-            group.add(bellMesh);
-
-            // ── Gel mesh (rim glow overlay — same geometry, scaled slightly larger) ──
-            const gelMat = new THREE.ShaderMaterial({
-                vertexShader: gelVertShader,
-                fragmentShader: gelFragShader,
-                uniforms: {
-                    diffuse: { value: new THREE.Color(palette.gel) },
-                    opacity: { value: 0.2 },
-                },
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                side: THREE.DoubleSide,
-                depthWrite: false,
-            });
-            const gelMesh = new THREE.Mesh(bellGeo, gelMat); // Shared geometry — pulses together
-            gelMesh.scale.set(1.03, 1.03, 1.03);
-            group.add(gelMesh);
-
-            // Store original positions for bell pulsation animation
-            const posArray = bellGeo.attributes.position.array as Float32Array;
-            const bellOrigPositions = new Float32Array(posArray.length);
-            bellOrigPositions.set(posArray);
-
-            // ── Tentacle strands (Line geometry with distance-based glow) ──
-            const tentacles: TentacleStrand[] = [];
-            const strandCount = 8 + Math.floor(Math.random() * 4); // 8-11 strands
-            const pointsPerStrand = 24;
-
-            for (let s = 0; s < strandCount; s++) {
-                const angle = (s / strandCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
-                const positions = new Float32Array(pointsPerStrand * 3);
-                const velocities = new Float32Array(pointsPerStrand * 3);
-                const rimRadius = targetSize * 0.83;
-
-                // Initialize hanging straight down from bell rim
-                for (let p = 0; p < pointsPerStrand; p++) {
-                    const x = Math.cos(angle) * rimRadius * (1 - p * 0.01);
-                    const z = Math.sin(angle) * rimRadius * (1 - p * 0.01);
-                    const y = -p * (targetSize * 0.18);
-                    positions[p * 3] = x;
-                    positions[p * 3 + 1] = y;
-                    positions[p * 3 + 2] = z;
-                }
-
-                const geo = new THREE.BufferGeometry();
-                geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-                const tentacleMat = new THREE.ShaderMaterial({
-                    vertexShader: tentacleVertShader,
-                    fragmentShader: tentacleFragShader,
-                    uniforms: {
-                        diffuse: { value: new THREE.Color(palette.tentacle) },
-                        opacity: { value: 0.5 + Math.random() * 0.2 },
-                        area: { value: targetSize * 3.0 },
-                    },
-                    transparent: true,
-                    blending: THREE.AdditiveBlending,
-                    depthWrite: false,
-                });
-
-                const line = new THREE.Line(geo, tentacleMat);
-                group.add(line);
-
-                tentacles.push({
-                    points: line as unknown as THREE.Points,
-                    positions,
-                    velocities,
-                    attachAngle: angle,
-                    length: pointsPerStrand,
-                });
-            }
-
-            // ── Ambient dust particles (floating luminous motes) ──
-            const dustCount = 40;
-            const dustPositions = new Float32Array(dustCount * 3);
-            for (let d = 0; d < dustCount; d++) {
-                dustPositions[d * 3] = (Math.random() - 0.5) * targetSize * 6;
-                dustPositions[d * 3 + 1] = (Math.random() - 0.5) * targetSize * 8;
-                dustPositions[d * 3 + 2] = (Math.random() - 0.5) * targetSize * 4;
-            }
-            const dustGeo = new THREE.BufferGeometry();
-            dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
-
-            const dustMat = new THREE.ShaderMaterial({
-                vertexShader: dustVertShader,
-                fragmentShader: dustFragShader,
-                uniforms: {
-                    color: { value: new THREE.Color(0xffffff) },
-                    opacity: { value: 0.3 },
-                    size: { value: 3.0 },
-                    scale: { value: 300.0 },
-                    time: { value: 0.0 },
-                    area: { value: targetSize * 6.0 },
-                },
-                transparent: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-            });
-            const dustPoints = new THREE.Points(dustGeo, dustMat);
-            group.add(dustPoints);
-
-            // ── Position jellyfish in scene ──
-            const startPos = new THREE.Vector3(
-                (Math.random() - 0.5) * 18,
-                (Math.random() - 0.5) * 12,
-                (Math.random() - 0.5) * 6 - 2
-            );
-            group.position.copy(startPos);
-            this.scene.add(group);
-
-            const jellyfish: Jellyfish = {
-                index: i,
-                group,
-                bellMesh,
-                bellOrigPositions,
-                bellHeight: targetSize * bellHeight,
-                tentacles,
-                bellMat,
-                gelMat,
-                dustMat,
-
-                position: startPos.clone(),
-                velocity: new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.5,
-                    -0.3 + Math.random() * 0.6,
-                    (Math.random() - 0.5) * 0.3
-                ),
-                acceleration: new THREE.Vector3(),
-                targetPosition: startPos.clone(),
-                trackingTarget: targets[i % targets.length],
-
-                behavior: 'DRIFTING',
-                behaviorTimer: 3 + Math.random() * 4,
-                phase: Math.random() * Math.PI * 2,
-
-                boldness: 0.3 + Math.random() * 0.5,
-                curiosity: 0.4 + Math.random() * 0.6,
-                luminosity: 0.5 + Math.random() * 0.5,
-
-                maxSpeed: this.JELLY_MAX_SPEED * (0.7 + Math.random() * 0.6),
-                cruiseSpeed: this.JELLY_CRUISE_SPEED * (0.8 + Math.random() * 0.4),
-
-                pulsePhase: Math.random() * Math.PI * 2,
-                pulseRate: this.JELLY_PULSE_RATE * (0.9 + Math.random() * 0.2),
-                pulseAmplitude: this.JELLY_PULSE_AMPLITUDE,
-
-                smoothedYaw: 0,
-                smoothedPitch: 0,
-                smoothedRoll: 0,
-
-                startleIntensity: 0,
-                fleeDirection: new THREE.Vector3(),
-                glowIntensity: 0.15,
-                targetGlowIntensity: 0.15,
-
-                bellColor: palette.diffuse,
-                glowColor: palette.gel,
-
-                gatherPartner: null,
-            };
-
-            this.jellyfish.push(jellyfish);
-        }
-
-        console.log(`Created ${this.jellyfish.length} jellyfish`);
-    }
-
-    private updateAllJellyfish(delta: number) {
-        // Get hand positions in world space
-        const leftHandPos = this.tracking.leftHand
-            ? new THREE.Vector3(
-                (1 - this.tracking.leftHand.x) * this.width / this.height * 26 - 13 * this.width / this.height,
-                (1 - this.tracking.leftHand.y) * 26 - 13,
-                0
-            ) : null;
-        // Simplified: map 0-1 normalized to camera frustum
-        const rightHandPos = this.tracking.rightHand
-            ? new THREE.Vector3(
-                (1 - this.tracking.rightHand.x) * this.width / this.height * 26 - 13 * this.width / this.height,
-                (1 - this.tracking.rightHand.y) * 26 - 13,
-                0
-            ) : null;
-
-        // Hand velocity magnitudes for startle detection
-        const leftHandSpeed = this.handVelocityLeft.length() * 60;
-        const rightHandSpeed = this.handVelocityRight.length() * 60;
-        const isLeftHandFast = leftHandSpeed > this.JELLY_STARTLE_THRESHOLD;
-        const isRightHandFast = rightHandSpeed > this.JELLY_STARTLE_THRESHOLD;
-
-        // Creature-to-creature interactions
-        this.updateJellyfishInteractions(delta);
-
-        for (let i = 0; i < this.jellyfish.length; i++) {
-            const j = this.jellyfish[i];
-
-            // 1. Update behavior state
-            this.updateJellyfishBehavior(j, delta, leftHandPos, rightHandPos, isLeftHandFast, isRightHandFast);
-
-            // 2. Reset acceleration
-            j.acceleration.set(0, 0, 0);
-
-            // 3. Apply behavior forces
-            this.applyJellyfishBehaviorForce(j, leftHandPos, rightHandPos, delta);
-
-            // 4. Apply separation
-            this.applyJellyfishSeparation(j);
-
-            // 5. Apply boundary forces
-            this.applyJellyfishBoundaryForce(j);
-
-            // 6. Apply physics (velocity integration)
-            this.applyJellyfishPhysics(j, delta);
-
-            // 7. Update rotation
-            this.updateJellyfishRotation(j, delta);
-
-            // 8. Update bell pulsation
-            this.updateJellyfishBellPulse(j, delta);
-
-            // 9. Update tentacles
-            this.updateJellyfishTentacles(j, delta);
-
-            // 10. Update glow
-            this.updateJellyfishGlow(j, delta);
-
-            // 11. Sync group position
-            j.group.position.copy(j.position);
-            j.group.rotation.set(j.smoothedPitch * 0.3, j.smoothedYaw, j.smoothedRoll * 0.2);
-        }
-    }
-
-    private updateJellyfishBehavior(
-        j: Jellyfish,
-        delta: number,
-        leftHand: THREE.Vector3 | null,
-        rightHand: THREE.Vector3 | null,
-        isLeftFast: boolean,
-        isRightFast: boolean
-    ) {
-        j.behaviorTimer -= delta;
-
-        // Handle startle decay
-        if (j.startleIntensity > 0) {
-            j.startleIntensity -= delta / this.JELLY_STARTLE_DURATION;
-            if (j.startleIntensity <= 0) {
-                j.startleIntensity = 0;
-                j.behavior = 'DRIFTING';
-                j.behaviorTimer = 3.0 + Math.random() * 2;
-            }
-        }
-
-        // Get target hand
-        const targetHand = j.trackingTarget === 'leftHand' ? leftHand :
-                          j.trackingTarget === 'rightHand' ? rightHand : null;
-        const handIsFast = j.trackingTarget === 'leftHand' ? isLeftFast : isRightFast;
-
-        // Check for startle (fast hand nearby)
-        if (targetHand && handIsFast && j.behavior !== 'STARTLED') {
-            const distToHand = j.position.distanceTo(targetHand);
-            if (distToHand < this.JELLY_STARTLE_RADIUS) {
-                j.behavior = 'STARTLED';
-                j.startleIntensity = 1.0;
-                j.behaviorTimer = this.JELLY_STARTLE_DURATION;
-                j.targetGlowIntensity = 1.2 * j.luminosity;
-
-                // Flee away from hand with upward bias
-                j.fleeDirection.copy(j.position).sub(targetHand).normalize();
-                j.fleeDirection.y += 0.6;
-                j.fleeDirection.normalize();
-                j.startleIntensity *= (2 - j.boldness);
-
-                // Increase pulse rate during startle
-                j.pulseRate = 2.5;
-                return;
-            }
-        }
-
-        // Also check the other hand for startle
-        const otherHand = j.trackingTarget === 'leftHand' ? rightHand : leftHand;
-        const otherFast = j.trackingTarget === 'leftHand' ? isRightFast : isLeftFast;
-        if (otherHand && otherFast && j.behavior !== 'STARTLED') {
-            const distToOther = j.position.distanceTo(otherHand);
-            if (distToOther < this.JELLY_STARTLE_RADIUS * 0.7) {
-                j.behavior = 'STARTLED';
-                j.startleIntensity = 0.8;
-                j.behaviorTimer = this.JELLY_STARTLE_DURATION * 0.8;
-                j.targetGlowIntensity = 0.9 * j.luminosity;
-                j.fleeDirection.copy(j.position).sub(otherHand).normalize();
-                j.fleeDirection.y += 0.5;
-                j.fleeDirection.normalize();
-                j.pulseRate = 2.2;
-                return;
-            }
-        }
-
-        // Behavior state transitions (only when timer runs out and not startled/gathering)
-        if (j.behavior !== 'STARTLED' && j.behavior !== 'GATHERING' && j.behaviorTimer <= 0) {
-            const rand = Math.random();
-
-            // Restore normal pulse rate
-            j.pulseRate = this.JELLY_PULSE_RATE * (0.9 + Math.random() * 0.2);
-
-            if (targetHand) {
-                const distToHand = j.position.distanceTo(targetHand);
-                if (distToHand < 4 && j.boldness > 0.5) {
-                    // Very close to slow hand: DISPLAYING
-                    j.behavior = 'DISPLAYING';
-                    j.behaviorTimer = 4 + Math.random() * 3;
-                    j.pulseRate = 0.6;
-                    j.targetGlowIntensity = 0.3;
-                } else if (distToHand < this.JELLY_CURIOSITY_RADIUS) {
-                    if (rand < j.curiosity * j.boldness * 0.7) {
-                        j.behavior = 'CURIOUS';
-                        j.behaviorTimer = 2 + Math.random() * 3;
-                        j.pulseRate = 1.2;
-                        j.targetGlowIntensity = 0.3;
-                    } else if (rand < 0.7) {
-                        j.behavior = 'PULSING';
-                        j.behaviorTimer = 1.5 + Math.random() * 2;
-                        j.pulseRate = 1.5;
-                        j.targetGlowIntensity = 0.25;
-                    } else {
-                        j.behavior = 'DRIFTING';
-                        j.behaviorTimer = 3 + Math.random() * 3;
-                        j.targetGlowIntensity = 0.15;
-                    }
-                } else {
-                    // Hand far away
-                    if (rand < 0.6) {
-                        j.behavior = 'DRIFTING';
-                        j.behaviorTimer = 4 + Math.random() * 4;
-                        j.targetGlowIntensity = 0.15;
-                    } else {
-                        j.behavior = 'PULSING';
-                        j.behaviorTimer = 2 + Math.random() * 3;
-                        j.pulseRate = 1.5;
-                        j.targetGlowIntensity = 0.25;
-                    }
-                }
-            } else {
-                // No hand: ambient behaviors
-                if (rand < 0.6) {
-                    j.behavior = 'DRIFTING';
-                    j.behaviorTimer = 5 + Math.random() * 5;
-                    j.targetGlowIntensity = 0.15;
-                } else {
-                    j.behavior = 'PULSING';
-                    j.behaviorTimer = 3 + Math.random() * 3;
-                    j.pulseRate = 1.5;
-                    j.targetGlowIntensity = 0.25;
-                }
-            }
-        }
-    }
-
-    private applyJellyfishBehaviorForce(
-        j: Jellyfish,
-        leftHand: THREE.Vector3 | null,
-        rightHand: THREE.Vector3 | null,
-        _delta: number
-    ) {
-        const targetHand = j.trackingTarget === 'leftHand' ? leftHand :
-                          j.trackingTarget === 'rightHand' ? rightHand : null;
-
-        switch (j.behavior) {
-            case 'STARTLED': {
-                const fleeForce = this._tmpVec1.copy(j.fleeDirection).multiplyScalar(
-                    j.maxSpeed * 1.5 * j.startleIntensity
-                );
-                j.acceleration.add(fleeForce);
-                break;
-            }
-
-            case 'CURIOUS': {
-                if (targetHand) {
-                    const toHand = this._tmpVec1.copy(targetHand).sub(j.position);
-                    const dist = toHand.length();
-                    // Orbit offset — don't go directly to hand
-                    const orbitAngle = this.time * 0.3 + j.phase;
-                    const orbitRadius = 3 + j.boldness * 2;
-                    const orbitOffset = this._tmpVec2.set(
-                        Math.cos(orbitAngle) * orbitRadius,
-                        Math.sin(orbitAngle * 0.7) * orbitRadius * 0.5,
-                        Math.sin(orbitAngle) * orbitRadius * 0.3
-                    );
-                    const target = this._tmpVec3.copy(targetHand).add(orbitOffset);
-                    const toTarget = target.sub(j.position);
-                    const spring = dist > 5 ? 8 : 5;
-                    j.acceleration.add(toTarget.normalize().multiplyScalar(spring));
-                }
-                // Gentle upward drift
-                j.acceleration.y += 0.3;
-                break;
-            }
-
-            case 'DRIFTING': {
-                // Gentle upward bias (jellyfish drift up)
-                j.acceleration.y += 0.5;
-                // Sinusoidal horizontal wander
-                j.acceleration.x += Math.sin(this.time * 0.4 + j.phase) * 0.4;
-                j.acceleration.z += Math.cos(this.time * 0.3 + j.phase * 1.3) * 0.3;
-
-                // If there's a hand in view, gently bias toward it
-                if (targetHand) {
-                    const toHand = this._tmpVec1.copy(targetHand).sub(j.position);
-                    const dist = toHand.length();
-                    if (dist < this.JELLY_CURIOSITY_RADIUS * 1.5) {
-                        j.acceleration.add(toHand.normalize().multiplyScalar(0.8));
-                    }
-                }
-                break;
-            }
-
-            case 'PULSING': {
-                // Jellyfish propulsion: upward thrust synchronized with bell contraction
-                const pulsePower = Math.sin(j.pulsePhase * Math.PI * 2);
-                if (pulsePower > 0.5) {
-                    // Thrust upward during contraction
-                    j.acceleration.y += pulsePower * 3.0;
-                } else {
-                    // Drift down between pulses
-                    j.acceleration.y -= 0.4;
-                }
-                // Slight horizontal wander
-                j.acceleration.x += Math.sin(this.time * 0.3 + j.phase) * 0.2;
-                j.acceleration.z += Math.cos(this.time * 0.25 + j.phase) * 0.15;
-                break;
-            }
-
-            case 'DISPLAYING': {
-                // Nearly stationary: strong damping toward target near hand
-                if (targetHand) {
-                    // Hover near hand with offset
-                    const offset = this._tmpVec2.set(
-                        Math.sin(this.time * 0.2 + j.phase) * 2,
-                        Math.cos(this.time * 0.15 + j.phase) * 1.5 + 1,
-                        0
-                    );
-                    const target = this._tmpVec3.copy(targetHand).add(offset);
-                    j.acceleration.add(target.sub(j.position).multiplyScalar(3));
-                }
-                // Strong velocity damping
-                j.velocity.multiplyScalar(0.92);
-
-                // Rhythmic glow pulsing
-                j.targetGlowIntensity = 0.2 + Math.sin(this.time * 1.5 + j.phase) * 0.3;
-                break;
-            }
-
-            case 'GATHERING': {
-                if (j.gatherPartner) {
-                    // Orbit midpoint between self and partner
-                    const mid = this._tmpVec1.copy(j.position).add(j.gatherPartner.position).multiplyScalar(0.5);
-                    const orbitAngle = this.time * 0.5 + j.phase;
-                    const orbitR = 2.0;
-                    const orbitTarget = this._tmpVec2.set(
-                        mid.x + Math.cos(orbitAngle) * orbitR,
-                        mid.y + Math.sin(orbitAngle * 0.7) * orbitR * 0.5,
-                        mid.z + Math.sin(orbitAngle) * orbitR * 0.3
-                    );
-                    const toTarget = this._tmpVec3.copy(orbitTarget).sub(j.position);
-                    j.acceleration.add(toTarget.multiplyScalar(4));
-                } else {
-                    // Partner lost, revert to drifting
-                    j.behavior = 'DRIFTING';
-                    j.behaviorTimer = 2 + Math.random() * 3;
-                }
-                break;
-            }
-        }
-    }
-
-    private applyJellyfishSeparation(j: Jellyfish) {
-        for (let k = 0; k < this.jellyfish.length; k++) {
-            if (k === j.index) continue;
-            const other = this.jellyfish[k];
-            const diff = this._tmpVec1.copy(j.position).sub(other.position);
-            const dist = diff.length();
-            if (dist < this.JELLY_SEPARATION_RADIUS && dist > 0.001) {
-                const force = (this.JELLY_SEPARATION_RADIUS - dist) / this.JELLY_SEPARATION_RADIUS;
-                j.acceleration.add(diff.normalize().multiplyScalar(force * this.JELLY_SEPARATION_WEIGHT));
-            }
-        }
-    }
-
-    private applyJellyfishBoundaryForce(j: Jellyfish) {
-        const aspect = this.width / this.height;
-        const boundX = 13 * aspect;
-        const boundY = 13;
-        const margin = 3;
-        const strength = 5;
-
-        if (j.position.x < -boundX + margin) j.acceleration.x += strength * ((-boundX + margin) - j.position.x);
-        if (j.position.x > boundX - margin) j.acceleration.x -= strength * (j.position.x - (boundX - margin));
-        if (j.position.y < -boundY + margin) j.acceleration.y += strength * ((-boundY + margin) - j.position.y);
-        if (j.position.y > boundY - margin) j.acceleration.y -= strength * (j.position.y - (boundY - margin));
-        if (j.position.z < -8) j.acceleration.z += strength * 0.5;
-        if (j.position.z > 4) j.acceleration.z -= strength * 0.5;
-    }
-
-    private applyJellyfishPhysics(j: Jellyfish, dt: number) {
-        // Integrate acceleration
-        j.velocity.addScaledVector(j.acceleration, dt);
-
-        // Drag (jellyfish move through water, high drag)
-        j.velocity.multiplyScalar(this.JELLY_DRAG);
-
-        // Clamp speed
-        const speed = j.velocity.length();
-        const maxSpd = j.behavior === 'STARTLED' ? j.maxSpeed * 1.5 : j.maxSpeed;
-        if (speed > maxSpd) {
-            j.velocity.multiplyScalar(maxSpd / speed);
-        }
-
-        // Integrate position
-        j.position.addScaledVector(j.velocity, dt);
-    }
-
-    private updateJellyfishRotation(j: Jellyfish, dt: number) {
-        const speed = j.velocity.length();
-        if (speed > 0.1) {
-            // Yaw follows horizontal velocity direction
-            const targetYaw = Math.atan2(j.velocity.x, j.velocity.z);
-            j.smoothedYaw += (targetYaw - j.smoothedYaw) * dt * 1.5;
-
-            // Pitch tilts based on vertical velocity
-            const targetPitch = -j.velocity.y * 0.15;
-            j.smoothedPitch += (targetPitch - j.smoothedPitch) * dt * 2;
-        }
-
-        // Subtle roll wobble
-        const targetRoll = Math.sin(this.time * 0.5 + j.phase) * 0.1;
-        j.smoothedRoll += (targetRoll - j.smoothedRoll) * dt * 2;
-    }
-
-    private updateJellyfishBellPulse(j: Jellyfish, delta: number) {
-        j.pulsePhase += delta * j.pulseRate;
-
-        // Update time uniform for procedural pattern animation
-        j.bellMat.uniforms.time.value = this.time;
-
-        // Bell geometry is shared between bell mesh and gel mesh — both pulse together
-        const geo = j.bellMesh.geometry;
-        const positions = geo.attributes.position.array as Float32Array;
-        const orig = j.bellOrigPositions;
-        const pulseAmount = j.pulseAmplitude;
-        const pulseFactor = Math.sin(j.pulsePhase * Math.PI * 2);
-
-        for (let v = 0; v < positions.length; v += 3) {
-            const ox = orig[v];
-            const oy = orig[v + 1];
-            const oz = orig[v + 2];
-
-            const radial = Math.sqrt(ox * ox + oz * oz);
-
-            // rimFactor: 0 at apex (top), 1 at rim and below
-            const normalizedY = Math.max(0, oy / j.bellHeight);
-            const rimFactor = 1.0 - normalizedY;
-
-            // Radial pulse: stronger at rim
-            const pulse = pulseFactor * pulseAmount * rimFactor;
-
-            if (radial > 0.001) {
-                const scale = 1.0 + pulse;
-                positions[v]     = ox * scale;
-                positions[v + 2] = oz * scale;
-            }
-
-            // Vertical: slight compression/expansion synchronized with pulse
-            positions[v + 1] = oy + pulseFactor * 0.04 * (1.0 - normalizedY * 0.5);
-        }
-
-        geo.attributes.position.needsUpdate = true;
-        geo.computeVertexNormals();
-    }
-
-    private updateJellyfishTentacles(j: Jellyfish, delta: number) {
-        const gravity = -2.0;
-        const springStrength = 5.0;
-        const damping = 0.90;
-        // Bell height is 2.0*targetSize, rim at y=0, rimRadius = 0.83 * targetSize
-        const halfBellH = j.bellHeight * 0.5;
-        const rimRadius = halfBellH * 0.83;
-
-        for (const strand of j.tentacles) {
-            const pos = strand.positions;
-            const vel = strand.velocities;
-
-            // Point 0: attach to bell rim (animated with pulsation)
-            const pulseScale = 1.0 + Math.sin(j.pulsePhase * Math.PI * 2) * j.pulseAmplitude;
-            const attachR = rimRadius * pulseScale;
-            pos[0] = Math.cos(strand.attachAngle) * attachR;
-            pos[1] = 0; // Rim is at y=0 in bell local space
-            pos[2] = Math.sin(strand.attachAngle) * attachR;
-            vel[0] = vel[1] = vel[2] = 0;
-
-            // Natural spacing between points
-            const spacing = halfBellH * 0.15;
-
-            // Chain spring-damper
-            for (let p = 1; p < strand.length; p++) {
-                const pi = p * 3;
-                const ppi = (p - 1) * 3;
-
-                const dx = pos[ppi] - pos[pi];
-                const dy = pos[ppi + 1] - pos[pi] - spacing;
-                const dz = pos[ppi + 2] - pos[pi];
-
-                vel[pi]     += dx * springStrength * delta;
-                vel[pi + 1] += (dy * springStrength + gravity) * delta;
-                vel[pi + 2] += dz * springStrength * delta;
-
-                // Jellyfish movement drags tentacles
-                vel[pi]     += j.velocity.x * delta * 0.6;
-                vel[pi + 1] += j.velocity.y * delta * 0.4;
-                vel[pi + 2] += j.velocity.z * delta * 0.6;
-
-                // Subtle wave motion
-                const wave = Math.sin(this.time * 2.0 + p * 0.4 + j.phase + strand.attachAngle) * 0.15;
-                vel[pi]     += wave * delta;
-                vel[pi + 2] += wave * delta * 0.5;
-
-                vel[pi]     *= damping;
-                vel[pi + 1] *= damping;
-                vel[pi + 2] *= damping;
-
-                pos[pi]     += vel[pi] * delta;
-                pos[pi + 1] += vel[pi + 1] * delta;
-                pos[pi + 2] += vel[pi + 2] * delta;
-            }
-
-            strand.points.geometry.attributes.position.needsUpdate = true;
-        }
-    }
-
-    private updateJellyfishGlow(j: Jellyfish, delta: number) {
-        // Smooth glow transitions
-        j.glowIntensity += (j.targetGlowIntensity - j.glowIntensity) * delta * 3;
-
-        // During startle, glow decays after initial flash
-        if (j.behavior === 'STARTLED' && j.startleIntensity < 0.5) {
-            j.targetGlowIntensity = 0.15;
-        }
-
-        // Bell shader: modulate opacity (procedural pattern handles internal translucency)
-        j.bellMat.uniforms.opacity.value = 0.6 + j.glowIntensity * 0.4;
-
-        // Gel shader: rim glow intensifies with bioluminescence
-        j.gelMat.uniforms.opacity.value = 0.12 + j.glowIntensity * 0.5;
-
-        // Tentacle shader: glow modulates opacity
-        for (const strand of j.tentacles) {
-            const mat = strand.points.material as THREE.ShaderMaterial;
-            if (mat?.uniforms) {
-                mat.uniforms.opacity.value = 0.3 + j.glowIntensity * 0.5;
-            }
-        }
-
-        // Dust: subtle glow + time animation
-        j.dustMat.uniforms.opacity.value = 0.2 + j.glowIntensity * 0.2;
-        j.dustMat.uniforms.time.value = this.time;
-    }
-
-    private updateJellyfishInteractions(_delta: number) {
-        // GATHERING: check for nearby pairs
-        for (let i = 0; i < this.jellyfish.length; i++) {
-            const a = this.jellyfish[i];
-            if (a.behavior === 'STARTLED') continue;
-            if (a.gatherPartner) continue; // Already gathering
-
-            for (let k = i + 1; k < this.jellyfish.length; k++) {
-                const b = this.jellyfish[k];
-                if (b.behavior === 'STARTLED' || b.gatherPartner) continue;
-
-                const dist = a.position.distanceTo(b.position);
-                if (dist < 5.0 && Math.random() < 0.002) {
-                    // Initiate gathering
-                    a.behavior = 'GATHERING';
-                    a.behaviorTimer = 4 + Math.random() * 3;
-                    a.gatherPartner = b;
-                    a.targetGlowIntensity = 0.25;
-
-                    b.behavior = 'GATHERING';
-                    b.behaviorTimer = 4 + Math.random() * 3;
-                    b.gatherPartner = a;
-                    b.targetGlowIntensity = 0.25;
-                    break;
-                }
-            }
-        }
-
-        // Clear expired gather partnerships
-        for (const j of this.jellyfish) {
-            if (j.behavior === 'GATHERING' && j.behaviorTimer <= 0) {
-                if (j.gatherPartner) {
-                    j.gatherPartner.gatherPartner = null;
-                    if (j.gatherPartner.behavior === 'GATHERING') {
-                        j.gatherPartner.behavior = 'DRIFTING';
-                        j.gatherPartner.behaviorTimer = 3 + Math.random() * 3;
-                    }
-                }
-                j.gatherPartner = null;
-                j.behavior = 'DRIFTING';
-                j.behaviorTimer = 3 + Math.random() * 3;
-            }
-        }
-    }
-
-    // ========================================
     // PUBLIC METHODS
     // ========================================
 
@@ -5665,14 +4540,21 @@ export class Creature3DRenderer {
         // If already transitioning, just update the pending mode
         if (this.transitionState !== 'idle') {
             this.pendingMode = mode;
+            // Start loading the new model in parallel
+            this.pendingModelLoad = this.loadModelForMode(mode).then(() => {
+                this.pendingModelLoad = null;
+            });
             return;
         }
 
-        // Start exit transition
+        // Start exit transition + load new model in parallel
         this.pendingMode = mode;
         this.transitionState = 'exiting';
         this.transitionTimer = 0;
         this.animateCreaturesToEdges();
+        this.pendingModelLoad = this.loadModelForMode(mode).then(() => {
+            this.pendingModelLoad = null;
+        });
     }
 
     public get isTransitioning(): boolean {

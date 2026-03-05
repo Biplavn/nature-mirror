@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { VisionManager } from '../core/vision/VisionManager';
 import { Creature3DRenderer, type CreatureMode } from '../core/graphics/Creature3DRenderer';
+import { QualityManager } from '../core/graphics/QualityManager';
 import { HummingbirdSVG } from './illustrations/HummingbirdSVG';
 import { ClownfishSVG } from './illustrations/ClownfishSVG';
 import { BeeSVG } from './illustrations/BeeSVG';
@@ -57,6 +58,38 @@ const MODES_CONFIG: ModeConfig[] = [
     },
 ];
 
+/* ─── Behavior Hints & Facts ─── */
+
+const BEHAVIOR_HINTS: Record<CreatureMode, string> = {
+    BEES: "Bees are eager -- they'll rush to follow your every move",
+    BIRDS: "Hummingbirds are cautious -- stay still and let them build trust",
+    FISH: "Fish are timid -- stay steady and they'll drift close, but the smallest movement scares them",
+    BUTTERFLIES: "Butterflies are free spirits -- they chase each other and scatter at the slightest touch",
+};
+
+const CREATURE_FACTS: Record<CreatureMode, string[]> = {
+    BEES: [
+        "Bees beat their wings 200 times per second",
+        "A bee can fly at speeds up to 25 km/h",
+        "Bees perform a waggle dance to communicate direction to their hive",
+    ],
+    BIRDS: [
+        "Hummingbirds are the only birds that can fly backwards",
+        "Their wings beat 50-80 times per second in a figure-8 pattern",
+        "A hummingbird's heart beats over 1,200 times per minute",
+    ],
+    FISH: [
+        "Fish swim by creating an S-wave that travels from head to tail",
+        "Clownfish live in a symbiotic relationship with sea anemones",
+        "Schools of fish move as one using lateral line sensors that detect water pressure",
+    ],
+    BUTTERFLIES: [
+        "Butterflies taste with their feet",
+        "A butterfly's erratic flight makes it harder for predators to catch them",
+        "Some butterfly species migrate over 4,800 km",
+    ],
+};
+
 /* ─── Component ─── */
 
 interface NatureMirrorProps {
@@ -74,6 +107,16 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
     const [handsDetected, setHandsDetected] = useState(false);
 
     const [isMuted, setIsMuted] = useState(false);
+    const [factIndex, setFactIndex] = useState(0);
+
+    // Cycle fun facts every 8 seconds, reset on mode change
+    useEffect(() => {
+        setFactIndex(0);
+        const interval = setInterval(() => {
+            setFactIndex(prev => (prev + 1) % CREATURE_FACTS[activeMode].length);
+        }, 8000);
+        return () => clearInterval(interval);
+    }, [activeMode]);
 
     const systemsRef = useRef<{
         vision: VisionManager | null;
@@ -116,13 +159,24 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
             try {
                 console.log('Initializing BUGS experience...');
 
-                const renderer = new Creature3DRenderer(containerRef.current!, 10);
+                // Detect device capability and set quality
+                const qualityMgr = new QualityManager();
+                const quality = qualityMgr.settings;
+
+                const renderer = new Creature3DRenderer(containerRef.current!, 10, quality);
 
                 if (initialMode !== 'BEES') {
                     renderer.setMode(initialMode);
                 }
 
-                const vision = new VisionManager();
+                const vision = new VisionManager({
+                    width: quality.cameraWidth,
+                    height: quality.cameraHeight,
+                    fps: 30,
+                    modelComplexity: quality.mediaComplexity,
+                    cameraWidth: quality.cameraWidth,
+                    cameraHeight: quality.cameraHeight,
+                });
 
                 try {
                     await vision.start();
@@ -150,6 +204,9 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
 
                 const animate = () => {
                     if (destroyed) return;
+
+                    // FPS monitoring for auto-downgrade
+                    qualityMgr.fpsMonitor.tick();
 
                     const { vision, renderer } = systemsRef.current;
                     if (!renderer) return;
@@ -324,6 +381,20 @@ export const NatureMirror: React.FC<NatureMirrorProps> = ({ onReady, initialMode
                         }`}
                         title={cameraActive ? 'Camera active' : 'Demo mode'}
                     />
+
+                    {/* Behavior hint + rotating fun facts at top */}
+                    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 max-w-lg text-center">
+                        <p className="font-sans text-white/25 text-xs">
+                            {BEHAVIOR_HINTS[activeMode]}
+                        </p>
+                        <p
+                            key={`${activeMode}-${factIndex}`}
+                            className="font-sans text-white/20 text-xs mt-2 opacity-0 animate-fade-up"
+                            style={{ animationFillMode: 'forwards' }}
+                        >
+                            {CREATURE_FACTS[activeMode][factIndex]}
+                        </p>
+                    </div>
 
                     {/* Mode Selector — bubble buttons with creature SVGs */}
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
