@@ -2105,9 +2105,6 @@ export class Creature3DRenderer {
         const stableFlockCenter = new THREE.Vector3().copy(flockCenter);
         const stableFlockVelocity = new THREE.Vector3().copy(flockVelocity);
 
-        // Use hand as flock target if available, otherwise flock center
-        const flockTarget = leftHandPos || rightHandPos || stableFlockCenter;
-
         for (const bird of this.hummingbirds) {
             bird.mixer?.update(delta);
 
@@ -2432,7 +2429,7 @@ export class Creature3DRenderer {
         }
     }
 
-    private calculateBirdSwarmForce(bird: Hummingbird, flockCenter: THREE.Vector3, flockVelocity: THREE.Vector3): THREE.Vector3 {
+    private calculateBirdSwarmForce(bird: Hummingbird, flockCenter: THREE.Vector3, _flockVelocity: THREE.Vector3): THREE.Vector3 {
         // Boids-like swarming (similar to bees) - keeps flock together smoothly
         const separation = new THREE.Vector3();
         const alignment = new THREE.Vector3();

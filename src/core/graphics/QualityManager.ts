@@ -135,7 +135,6 @@ export class FPSMonitor {
     private lastTime = 0;
     private readonly SAMPLE_SIZE = 60;
     private downgradeCount = 0;
-    private stableCount = 0;
 
     tick(): void {
         const now = performance.now();
@@ -166,7 +165,6 @@ export class FPSMonitor {
 
     resetCounters(): void {
         this.downgradeCount = 0;
-        this.stableCount = 0;
     }
 }
 
