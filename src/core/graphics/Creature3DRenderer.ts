@@ -302,7 +302,6 @@ export class Creature3DRenderer {
     private sharedBeeMaterials: Map<string, THREE.Material> = new Map();
     private sharedBeeGeometries: Map<string, THREE.BufferGeometry> = new Map();
     private birdModel: GLTF | null = null;
-    private fishModel: GLTF | null = null;
     private beeModel: GLTF | null = null;
     private butterflyModel: GLTF | null = null;
     private clock = new THREE.Clock();
@@ -607,13 +606,7 @@ export class Creature3DRenderer {
                 break;
 
             case 'FISH':
-                if (this.fishModel) return;
-                try {
-                    this.fishModel = await this.loader.loadAsync('/models/fish.glb');
-                    console.log('Fish model loaded!', this.fishModel.animations.length, 'animations');
-                } catch (e) {
-                    console.error('Failed to load fish model:', e);
-                }
+                // Fish are procedural (no GLB model needed)
                 break;
 
             case 'BEES':
@@ -4591,7 +4584,6 @@ export class Creature3DRenderer {
 
         // Dispose models
         this.birdModel = null;
-        this.fishModel = null;
         this.beeModel = null;
         this.butterflyModel = null;
 
